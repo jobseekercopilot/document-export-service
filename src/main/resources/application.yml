@@ -1,0 +1,26 @@
+server:
+  port: ${SERVER_PORT:8094}
+
+spring:
+  application:
+    name: document-export-service
+  servlet:
+    multipart:
+      max-file-size: 25MB
+      max-request-size: 30MB
+
+services:
+  document-store-service:
+    base-url: ${DOCUMENT_STORE_SERVICE_BASE_URL:http://localhost:8089}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{correlationId}] [%X{serviceName}] [%thread] %logger{36} - %msg%n"
+  level:
+    com.jobseekercopilot: ${APP_LOG_LEVEL:INFO}

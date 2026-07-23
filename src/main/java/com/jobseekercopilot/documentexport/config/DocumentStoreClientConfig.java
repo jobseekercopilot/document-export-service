@@ -1,0 +1,37 @@
+package com.jobseekercopilot.documentexport.config;
+
+import com.jobseekercopilot.generated.documentstoreservice.api.DocumentFilesApi;
+import com.jobseekercopilot.generated.documentstoreservice.api.GeneratedDocumentsApi;
+import com.jobseekercopilot.generated.documentstoreservice.client.ApiClient;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.client.RestTemplate;
+
+@Configuration
+public class DocumentStoreClientConfig {
+
+    @Bean
+    ApiClient documentStoreApiClient(
+            @Value("${services.document-store-service.base-url:http://localhost:8089}") String baseUrl) {
+        ApiClient apiClient = new ApiClient();
+        apiClient.setBasePath(baseUrl);
+        return apiClient;
+    }
+
+    @Bean
+    GeneratedDocumentsApi generatedDocumentsApi(ApiClient documentStoreApiClient) {
+        return new GeneratedDocumentsApi(documentStoreApiClient);
+    }
+
+    @Bean
+    DocumentFilesApi documentFilesApi(ApiClient documentStoreApiClient) {
+        return new DocumentFilesApi(documentStoreApiClient);
+    }
+
+    @Bean
+    RestTemplate restTemplate(RestTemplateBuilder builder) {
+        return builder.build();
+    }
+}
