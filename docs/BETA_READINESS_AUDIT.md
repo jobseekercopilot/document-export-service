@@ -30,7 +30,7 @@ stored text, not from the uploaded DOCX, so user edits are not represented.
   produced.
 - OWASP Dependency-Check 12.1.8 completed against the cached 2026-07-18
   advisory database: 53 dependencies, 11 vulnerable dependencies, 140
-  vulnerability matches, including 17 Critical and 38 High matches. Results
+  vulnerability matches, including 17 Critical and 37 High matches. Results
   require reachability/false-positive triage; the report was not committed.
 
 ## Confirmed blockers
