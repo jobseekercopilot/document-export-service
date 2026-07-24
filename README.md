@@ -20,8 +20,11 @@ See [`docs/BETA_READINESS_AUDIT.md`](docs/BETA_READINESS_AUDIT.md).
 
 ## API contract
 
-[`contracts/openapi.json`](contracts/openapi.json) is the migration-time
-OpenAPI snapshot.
+[`contracts/openapi.json`](contracts/openapi.json) is the producer-owned
+OpenAPI source. The immutable Java client version and reviewed source revision
+are recorded in [`api/client-release.json`](api/client-release.json). Generated
+client source and packages are disposable build output and are never committed.
+See [`api/README.md`](api/README.md) for the release and compatibility policy.
 
 The Document Store client is generated during Maven `generate-sources` from the
 reviewed, checksum-protected producer contract under `src/main/openapi`.
@@ -33,6 +36,11 @@ Generated sources and binaries are build outputs and are not committed. See
 ```bash
 ./scripts/test-contract-policy.sh
 ./scripts/verify-contracts.sh
+./scripts/test-api-contract-policy.sh
+./scripts/verify-api-contract.sh
+python3 scripts/verify_client_release.py
+python3 scripts/test_openapi_breaking.py
+./scripts/test-client-generation.sh
 mvn -B --no-transfer-progress clean verify
 docker build --tag local/document-export-service .
 ```
