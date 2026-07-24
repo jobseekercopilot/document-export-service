@@ -23,11 +23,11 @@ stored text, not from the uploaded DOCX, so user edits are not represented.
   files are excluded.
 - The migration-time contract is `contracts/openapi.json`.
 - Gitleaks and targeted personal-data checks passed on the source snapshot.
-- A clean `mvn -B clean verify` fails before compilation because the
-  `systemPath` document-store client JAR is absent. Ten test methods exist in
-  source, but they were not executed in the clean candidate.
-- The candidate container build fails at `COPY libs ./libs`; no image was
-  produced.
+- DOC-02 replaces the `systemPath` document-store client JAR with deterministic
+  source generation from an exact revision/checksum-pinned producer contract.
+  Contract policy tests, Maven verification and the source-only container build
+  now run in CI without a sibling repository, local `libs/` directory or
+  preinstalled Job Seeker Copilot artifact.
 - OWASP Dependency-Check 12.1.8 completed against the cached 2026-07-18
   advisory database: 53 dependencies, 11 vulnerable dependencies, 140
   vulnerability matches, including 17 Critical and 37 High matches. Results
@@ -57,7 +57,8 @@ stored text, not from the uploaded DOCX, so user edits are not represented.
 10. Third-party dependency and licence review evidence is incomplete.
 11. The Dockerfile lacks a non-root runtime, digest-pinned bases, explicit
     resource constraints, and supply-chain scan evidence.
-12. The build depends on an untracked generated client JAR.
+12. Wider document-generation consumers still need the same reproducible
+    contract approach under DOCGEN-02/DOCGEN-03.
 13. Current Spring, Tomcat, Jackson, compression, POI, logging, and Swagger UI
     dependency findings include untriaged Critical/High advisories.
 
