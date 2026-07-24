@@ -18,12 +18,12 @@ manifest() {
 mvn -B --no-transfer-progress -f "$module/pom.xml" clean package
 manifest > "$temporary_dir/first"
 test -s "$temporary_dir/first"
-sha256sum "$module/target/document-export-service-client-1.0.0-rev.aa7f34693d81.jar" \
+sha256sum "$module/target/document-export-service-client-2.0.0-rev.a35fff34f86b.jar" \
     > "$temporary_dir/first-jar"
 
 mvn -B --no-transfer-progress -f "$module/pom.xml" clean package
 manifest > "$temporary_dir/second"
-sha256sum "$module/target/document-export-service-client-1.0.0-rev.aa7f34693d81.jar" \
+sha256sum "$module/target/document-export-service-client-2.0.0-rev.a35fff34f86b.jar" \
     > "$temporary_dir/second-jar"
 
 cmp "$temporary_dir/first" "$temporary_dir/second"
