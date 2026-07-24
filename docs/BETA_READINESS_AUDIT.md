@@ -4,6 +4,10 @@ Audit date: 2026-07-23
 
 Status: **Not ready for private beta**
 
+Update 2026-07-24: DOCGEN-15 now implements the Document Export producer-side
+service identity and owner-bound Store calls. Gateway adoption, runtime secret
+injection and integrated two-user evidence are still required.
+
 ## Verified responsibility
 
 The service fetches generated text from Document Store, converts it to DOCX
@@ -35,8 +39,9 @@ stored text, not from the uploaded DOCX, so user edits are not represented.
 
 ## Confirmed blockers
 
-1. Export and replacement endpoints do not authenticate a user or authorise
-   ownership of the requested generated document.
+1. Gateway and Infrastructure must adopt the implemented Document Export 2.0.0
+   service-identity and owner-context contract before ownership is enforced in
+   the deployed end-to-end path.
 2. The replacement flow stores uploaded DOCX bytes but regenerates PDF from
    stale generated text; it can falsely claim the PDF was updated.
 3. `documentKind` is not checked against the stored document type.
@@ -51,8 +56,9 @@ stored text, not from the uploaded DOCX, so user edits are not represented.
    font substitution, licensing, accessibility, and environment consistency
    have not been demonstrated.
 8. There are no tests for PDF text extraction, DOCX editability after a real
-   office round trip, links, page breaks, large content, malicious input,
-   accessibility, or cross-user denial.
+   office round trip, links, page breaks, large content, malicious input or
+   accessibility. Service-boundary denial and owner propagation are covered,
+   but integrated two-user denial remains outstanding.
 9. Downstream calls do not share a bounded timeout/retry/idempotency policy.
 10. Third-party dependency and licence review evidence is incomplete.
 11. The Dockerfile lacks a non-root runtime, digest-pinned bases, explicit

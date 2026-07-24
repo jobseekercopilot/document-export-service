@@ -20,17 +20,32 @@ done
 
 test "$(wc -l < "$source_metadata" | tr -d ' ')" = 4
 grep -Fx 'repository=jobseekercopilot/document-store-service' "$source_metadata" >/dev/null
-grep -Fx 'revision=fedcdbdec63795269c4e4c4f43fc32f38c6327b1' "$source_metadata" >/dev/null
+grep -Fx 'revision=b696fe81e9b900e0749e185f595ff4c98c24119d' "$source_metadata" >/dev/null
 grep -Fx 'path=contracts/openapi.json' "$source_metadata" >/dev/null
-grep -Fx 'sha256=410ab1a7a2e8a5a5ad374443ec834f6aef7f778f6936b3ef90c33f8e580cdbd9' "$source_metadata" >/dev/null
+grep -Fx 'sha256=3d0595c83cc66d9037e08af6a4b087c115c9a5d99ec71491f1aa5fc3afffd6ba' "$source_metadata" >/dev/null
 
 jq -e '
     (.openapi | type == "string" and startswith("3.")) and
-    (.info.version == "1.0.0") and
+    (.info.version == "1.1.0") and
+    (.components.securitySchemes.serviceToken.type == "apiKey") and
+    (.components.securitySchemes.serviceToken.in == "header") and
+    (.components.securitySchemes.serviceToken.name == "X-Service-Token") and
     (.paths["/api/v1/documents/{id}"].get.operationId == "getDocumentById") and
+    (.paths["/api/v1/documents/{id}"].get.parameters
+        | any(.name == "X-Document-Owner" and .in == "header")) and
+    (.paths["/api/v1/documents/{id}"].get.security
+        | any(has("serviceToken"))) and
     (.paths["/api/v1/document-files"].post.operationId == "createDocumentFile") and
+    (.paths["/api/v1/document-files"].post.parameters
+        | any(.name == "X-Document-Owner" and .in == "header")) and
+    (.paths["/api/v1/document-files"].post.security
+        | any(has("serviceToken"))) and
     (.paths["/api/v1/documents/{generatedDocumentId}/files/upload"].post.operationId == "uploadReplacementFile") and
+    (.paths["/api/v1/documents/{generatedDocumentId}/files/upload"].post.parameters
+        | any(.name == "X-Document-Owner" and .in == "header")) and
     (.paths["/api/v1/documents/{generatedDocumentId}/files/latest"].get.operationId == "getLatestFilesForDocument") and
+    (.paths["/api/v1/documents/{generatedDocumentId}/files/latest"].get.parameters
+        | any(.name == "X-Document-Owner" and .in == "header")) and
     (.components.schemas.GeneratedDocumentResponse.properties
         | has("id") and has("title") and has("content") and has("documentType")) and
     (.components.schemas.CreateDocumentFileRequest.required

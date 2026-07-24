@@ -71,13 +71,40 @@ if "$repository_root/scripts/verify-contracts.sh" "$temporary_dir/file-content" 
 fi
 
 copy_contract "$temporary_dir/source-revision"
-sed 's/revision=fedcdbd/revision=0000000/' \
+sed 's/revision=b696fe8/revision=0000000/' \
     "$temporary_dir/source-revision/document-store-service.SOURCE" \
     > "$temporary_dir/source-revision/changed.SOURCE"
 mv "$temporary_dir/source-revision/changed.SOURCE" \
    "$temporary_dir/source-revision/document-store-service.SOURCE"
 if "$repository_root/scripts/verify-contracts.sh" "$temporary_dir/source-revision" >/dev/null 2>&1; then
     echo "contract policy negative test accepted unreviewed producer revision metadata" >&2
+    exit 1
+fi
+
+copy_contract "$temporary_dir/owner-context"
+jq 'del(
+    .paths["/api/v1/documents/{id}"].get.parameters[]
+    | select(.name == "X-Document-Owner")
+)' \
+    "$temporary_dir/owner-context/document-store-service.json" \
+    > "$temporary_dir/owner-context/changed.json"
+mv "$temporary_dir/owner-context/changed.json" \
+   "$temporary_dir/owner-context/document-store-service.json"
+(cd "$temporary_dir/owner-context" && sha256sum document-store-service.json > SHA256SUMS)
+if "$repository_root/scripts/verify-contracts.sh" "$temporary_dir/owner-context" >/dev/null 2>&1; then
+    echo "contract policy negative test accepted removal of owner context" >&2
+    exit 1
+fi
+
+copy_contract "$temporary_dir/service-identity"
+jq 'del(.components.securitySchemes.serviceToken)' \
+    "$temporary_dir/service-identity/document-store-service.json" \
+    > "$temporary_dir/service-identity/changed.json"
+mv "$temporary_dir/service-identity/changed.json" \
+   "$temporary_dir/service-identity/document-store-service.json"
+(cd "$temporary_dir/service-identity" && sha256sum document-store-service.json > SHA256SUMS)
+if "$repository_root/scripts/verify-contracts.sh" "$temporary_dir/service-identity" >/dev/null 2>&1; then
+    echo "contract policy negative test accepted removal of Store service authentication" >&2
     exit 1
 fi
 
