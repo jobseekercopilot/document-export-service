@@ -3,10 +3,10 @@
 Renders stored generated-document text to DOCX and PDF and writes exported
 bytes back to `document-store-service`.
 
-This migration baseline is **not beta-ready**. The service has no trusted user
-identity or ownership enforcement, clean-clone builds depend on an untracked
-client JAR, and the replacement flow creates a PDF from the old stored text
-instead of the uploaded DOCX. Export quality, accessibility, resource bounds,
+This service is **not beta-ready**. Its build is reproducible from committed
+source, but it still has no trusted user identity or ownership enforcement, and
+the replacement flow creates a PDF from the old stored text instead of the
+uploaded DOCX. Export quality, accessibility, resource bounds,
 malicious-document handling, and third-party licence evidence are incomplete.
 See [`docs/BETA_READINESS_AUDIT.md`](docs/BETA_READINESS_AUDIT.md).
 
@@ -23,15 +23,23 @@ See [`docs/BETA_READINESS_AUDIT.md`](docs/BETA_READINESS_AUDIT.md).
 [`contracts/openapi.json`](contracts/openapi.json) is the migration-time
 OpenAPI snapshot.
 
+The Document Store client is generated during Maven `generate-sources` from the
+reviewed, checksum-protected producer contract under `src/main/openapi`.
+Generated sources and binaries are build outputs and are not committed. See
+[`docs/CONTRACT_GOVERNANCE.md`](docs/CONTRACT_GOVERNANCE.md).
+
 ## Build
 
 ```bash
-mvn -B clean verify
+./scripts/test-contract-policy.sh
+./scripts/verify-contracts.sh
+mvn -B --no-transfer-progress clean verify
+docker build --tag local/document-export-service .
 ```
 
-The command currently fails in a clean clone because the document-store client
-is referenced from an untracked local `libs/` directory. Compiled clients must
-not be committed as the fix.
+These commands are the clean-clone verification contract. They require no
+sibling repository, local `libs/` directory, generated JAR or preinstalled
+Job Seeker Copilot artifact.
 
 ## Safe local use
 
