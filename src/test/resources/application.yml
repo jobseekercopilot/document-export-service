@@ -1,0 +1,5 @@
+document-export:
+  security:
+    gateway-token: test-only-document-export-gateway-token-32-bytes
+    document-store-producer-token: test-only-document-store-producer-token-32-bytes
+    document-store-reader-token: test-only-document-store-reader-token-32-bytes

@@ -4,9 +4,11 @@ Renders stored generated-document text to DOCX and PDF and writes exported
 bytes back to `document-store-service`.
 
 This service is **not beta-ready**. Its build is reproducible from committed
-source, but it still has no trusted user identity or ownership enforcement, and
-the replacement flow creates a PDF from the old stored text instead of the
-uploaded DOCX. Export quality, accessibility, resource bounds,
+source and its service-to-service export boundary now requires an authenticated
+Gateway identity with owner-bound, role-correct Document Store calls. The
+Gateway consumer and deployment credential rollout still have to adopt that
+contract, and the replacement flow creates a PDF from the old stored text
+instead of the uploaded DOCX. Export quality, accessibility, resource bounds,
 malicious-document handling, and third-party licence evidence are incomplete.
 See [`docs/BETA_READINESS_AUDIT.md`](docs/BETA_READINESS_AUDIT.md).
 
@@ -30,6 +32,25 @@ The Document Store client is generated during Maven `generate-sources` from the
 reviewed, checksum-protected producer contract under `src/main/openapi`.
 Generated sources and binaries are build outputs and are not committed. See
 [`docs/CONTRACT_GOVERNANCE.md`](docs/CONTRACT_GOVERNANCE.md).
+
+## Authorization boundary
+
+Every `/api/v1/document-exports/**` request must carry the approved Gateway
+credential in `X-Service-Token` and exactly one owner in `X-Document-Owner`.
+Document Export sends that owner to Document Store with the reader credential
+for document/latest-file reads and the producer credential for exported or
+replacement-file writes.
+
+All three credentials are required at startup, must contain at least 32 bytes
+and must be pairwise distinct:
+
+- `DOCUMENT_EXPORT_GATEWAY_TOKEN`
+- `DOCUMENT_STORE_PRODUCER_TOKEN`
+- `DOCUMENT_STORE_READER_TOKEN`
+
+They must be injected and rotated by the runtime. Never place values in Git,
+Compose defaults, container layers, workflow output or shell history. See
+[`docs/AUTHORIZATION_BOUNDARY.md`](docs/AUTHORIZATION_BOUNDARY.md).
 
 ## Build
 

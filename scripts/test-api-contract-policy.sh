@@ -66,4 +66,29 @@ if "$repository_root/scripts/verify-api-contract.sh" "$temporary_dir/enum" >/dev
     exit 1
 fi
 
+copy_contract "$temporary_dir/service-identity"
+jq 'del(.components.securitySchemes.serviceToken)' \
+    "$temporary_dir/service-identity/openapi.json" \
+    > "$temporary_dir/service-identity/changed.json"
+mv "$temporary_dir/service-identity/changed.json" "$temporary_dir/service-identity/openapi.json"
+(cd "$temporary_dir/service-identity" && sha256sum openapi.json > SHA256SUMS)
+if "$repository_root/scripts/verify-api-contract.sh" "$temporary_dir/service-identity" >/dev/null 2>&1; then
+    echo "API contract policy negative test accepted removal of service authentication" >&2
+    exit 1
+fi
+
+copy_contract "$temporary_dir/owner-context"
+jq 'del(
+    .paths["/api/v1/document-exports/documents/{documentId}"].post.parameters[]
+    | select(.name == "X-Document-Owner")
+)' \
+    "$temporary_dir/owner-context/openapi.json" \
+    > "$temporary_dir/owner-context/changed.json"
+mv "$temporary_dir/owner-context/changed.json" "$temporary_dir/owner-context/openapi.json"
+(cd "$temporary_dir/owner-context" && sha256sum openapi.json > SHA256SUMS)
+if "$repository_root/scripts/verify-api-contract.sh" "$temporary_dir/owner-context" >/dev/null 2>&1; then
+    echo "API contract policy negative test accepted removal of owner context" >&2
+    exit 1
+fi
+
 echo "API contract policy tests passed"

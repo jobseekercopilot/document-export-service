@@ -14,10 +14,10 @@ import com.jobseekercopilot.generated.documentstoreservice.api.GeneratedDocument
 import com.jobseekercopilot.generated.documentstoreservice.model.CreateDocumentFileRequest;
 import com.jobseekercopilot.generated.documentstoreservice.model.DocumentFileResponse;
 import com.jobseekercopilot.generated.documentstoreservice.model.GeneratedDocumentResponse;
-import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -38,16 +38,17 @@ import java.util.Locale;
 import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
 public class DocumentExportService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentExportService.class);
+    private static final String DOCUMENT_OWNER_HEADER = "X-Document-Owner";
 
     public static final String DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     public static final String PDF_MIME_TYPE = "application/pdf";
 
     private final GeneratedDocumentsApi generatedDocumentsApi;
-    private final DocumentFilesApi documentFilesApi;
+    private final DocumentFilesApi producerDocumentFilesApi;
+    private final DocumentFilesApi readerDocumentFilesApi;
     private final DocxExportService docxExportService;
     private final PdfExportService pdfExportService;
     private final RestTemplate restTemplate;
@@ -55,16 +56,36 @@ public class DocumentExportService {
     @Value("${services.document-store-service.base-url:http://localhost:8089}")
     private String documentStoreBaseUrl;
 
-    public DocumentExportResponse exportDocument(UUID documentId, DocumentExportRequest request) {
+    public DocumentExportService(
+            GeneratedDocumentsApi generatedDocumentsApi,
+            @Qualifier("documentStoreProducerFilesApi")
+            DocumentFilesApi producerDocumentFilesApi,
+            @Qualifier("documentStoreReaderFilesApi")
+            DocumentFilesApi readerDocumentFilesApi,
+            DocxExportService docxExportService,
+            PdfExportService pdfExportService,
+            RestTemplate restTemplate) {
+        this.generatedDocumentsApi = generatedDocumentsApi;
+        this.producerDocumentFilesApi = producerDocumentFilesApi;
+        this.readerDocumentFilesApi = readerDocumentFilesApi;
+        this.docxExportService = docxExportService;
+        this.pdfExportService = pdfExportService;
+        this.restTemplate = restTemplate;
+    }
+
+    public DocumentExportResponse exportDocument(
+            UUID documentId,
+            DocumentExportRequest request,
+            String documentOwner) {
         long startedAt = System.nanoTime();
         log.info("Document export started documentId={} formats={}",
                 documentId,
                 request == null || request.getFormats() == null ? 0 : request.getFormats().size());
-        GeneratedDocumentResponse document = fetchDocument(documentId);
+        GeneratedDocumentResponse document = fetchDocument(documentId, documentOwner);
         List<DocumentExportItem> exports = new ArrayList<>();
 
         for (ExportFormat format : new LinkedHashSet<>(request.getFormats())) {
-            exports.add(exportAndSave(document, format));
+            exports.add(exportAndSave(document, format, documentOwner));
         }
 
         log.info("Document export completed documentId={} exportCount={} durationMs={}",
@@ -77,29 +98,38 @@ public class DocumentExportService {
                 .build();
     }
 
-    public DocumentUploadResponse uploadReplacement(UUID generatedDocumentId, MultipartFile file,
-                                                    DocumentKind documentKind, ExportFormat uploadedFormat) {
+    public DocumentUploadResponse uploadReplacement(
+            UUID generatedDocumentId,
+            MultipartFile file,
+            DocumentKind documentKind,
+            ExportFormat uploadedFormat,
+            String documentOwner) {
         long startedAt = System.nanoTime();
         log.info("Document export replacement upload started generatedDocumentId={} documentKind={} uploadedFormat={} sizeBytes={}",
                 generatedDocumentId,
                 documentKind,
                 uploadedFormat,
                 file == null ? 0 : file.getSize());
-        fetchDocument(generatedDocumentId);
+        fetchDocument(generatedDocumentId, documentOwner);
         validateUpload(file, documentKind, uploadedFormat);
 
-        StoreDocumentFileResponse uploaded = uploadToStore(generatedDocumentId, file, uploadedFormat);
-        GeneratedDocumentResponse document = fetchDocument(generatedDocumentId);
+        StoreDocumentFileResponse uploaded = uploadToStore(
+                generatedDocumentId,
+                file,
+                uploadedFormat,
+                documentOwner);
+        GeneratedDocumentResponse document = fetchDocument(generatedDocumentId, documentOwner);
         DocumentFileResponse pdf = saveFile(
                 generatedDocumentId,
                 ExportFormat.PDF,
                 fileName(document, ExportFormat.PDF),
                 PDF_MIME_TYPE,
-                pdfExportService.export(document));
+                pdfExportService.export(document),
+                documentOwner);
         List<DocumentExportItem> regeneratedFiles = List.of(toExportItem(pdf));
         String message = "Document replaced successfully. PDF version has been updated.";
 
-        LatestDocumentFiles latestFiles = latestFiles(generatedDocumentId);
+        LatestDocumentFiles latestFiles = latestFiles(generatedDocumentId, documentOwner);
         log.info("Document export replacement upload completed generatedDocumentId={} uploadedFormat={} durationMs={}",
                 generatedDocumentId,
                 uploadedFormat,
@@ -113,11 +143,12 @@ public class DocumentExportService {
                 .build();
     }
 
-    private GeneratedDocumentResponse fetchDocument(UUID documentId) {
+    private GeneratedDocumentResponse fetchDocument(UUID documentId, String documentOwner) {
         long startedAt = System.nanoTime();
         log.info("Calling document-store-service get generated document documentId={}", documentId);
         try {
-            GeneratedDocumentResponse document = generatedDocumentsApi.getDocumentById(documentId);
+            GeneratedDocumentResponse document =
+                    generatedDocumentsApi.getDocumentById(documentId, documentOwner);
             if (document == null || document.getId() == null) {
                 throw new DownstreamServiceException("Document store returned no generated document", null);
             }
@@ -136,7 +167,10 @@ public class DocumentExportService {
         }
     }
 
-    private DocumentExportItem exportAndSave(GeneratedDocumentResponse document, ExportFormat format) {
+    private DocumentExportItem exportAndSave(
+            GeneratedDocumentResponse document,
+            ExportFormat format,
+            String documentOwner) {
         long startedAt = System.nanoTime();
         log.info("Document render started documentId={} format={}", document.getId(), format);
         byte[] bytes = switch (format) {
@@ -151,7 +185,8 @@ public class DocumentExportService {
         String mimeType = mimeType(format);
         String fileName = fileName(document, format);
 
-        DocumentFileResponse savedFile = saveFile(document.getId(), format, fileName, mimeType, bytes);
+        DocumentFileResponse savedFile =
+                saveFile(document.getId(), format, fileName, mimeType, bytes, documentOwner);
         if (savedFile == null || savedFile.getId() == null) {
             throw new DownstreamServiceException("Document store returned no exported file ID", null);
         }
@@ -165,7 +200,11 @@ public class DocumentExportService {
                 .build();
     }
 
-    private StoreDocumentFileResponse uploadToStore(UUID generatedDocumentId, MultipartFile file, ExportFormat uploadedFormat) {
+    private StoreDocumentFileResponse uploadToStore(
+            UUID generatedDocumentId,
+            MultipartFile file,
+            ExportFormat uploadedFormat,
+            String documentOwner) {
         long startedAt = System.nanoTime();
         log.info("Calling document-store-service upload replacement generatedDocumentId={} format={} sizeBytes={}",
                 generatedDocumentId,
@@ -187,6 +226,7 @@ public class DocumentExportService {
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+            headers.set(DOCUMENT_OWNER_HEADER, documentOwner);
 
             StoreDocumentFileResponse response = restTemplate.postForObject(
                     documentStoreBaseUrl + "/api/v1/documents/{generatedDocumentId}/files/upload",
@@ -210,27 +250,27 @@ public class DocumentExportService {
         }
     }
 
-    private LatestDocumentFiles latestFiles(UUID generatedDocumentId) {
+    private LatestDocumentFiles latestFiles(UUID generatedDocumentId, String documentOwner) {
         long startedAt = System.nanoTime();
         log.info("Calling document-store-service latest files generatedDocumentId={}", generatedDocumentId);
         try {
-            StoreDocumentFileResponse[] latest = restTemplate.getForObject(
-                    documentStoreBaseUrl + "/api/v1/documents/{generatedDocumentId}/files/latest",
-                    StoreDocumentFileResponse[].class,
-                    generatedDocumentId);
+            List<DocumentFileResponse> latest =
+                    readerDocumentFilesApi.getLatestFilesForDocument(
+                            generatedDocumentId,
+                            documentOwner);
             DocumentExportItem docx = null;
             DocumentExportItem pdf = null;
-            for (StoreDocumentFileResponse file : latest == null ? new StoreDocumentFileResponse[0] : latest) {
-                if (file.getFileType() == ExportFormat.DOCX && docx == null) {
+            for (DocumentFileResponse file : latest == null ? List.<DocumentFileResponse>of() : latest) {
+                if (file.getFileType() == DocumentFileResponse.FileTypeEnum.DOCX && docx == null) {
                     docx = toExportItem(file);
                 }
-                if (file.getFileType() == ExportFormat.PDF && pdf == null) {
+                if (file.getFileType() == DocumentFileResponse.FileTypeEnum.PDF && pdf == null) {
                     pdf = toExportItem(file);
                 }
             }
             log.info("document-store-service latest files returned generatedDocumentId={} count={} durationMs={}",
                     generatedDocumentId,
-                    latest == null ? 0 : latest.length,
+                    latest == null ? 0 : latest.size(),
                     (System.nanoTime() - startedAt) / 1_000_000);
             return LatestDocumentFiles.builder().docx(docx).pdf(pdf).build();
         } catch (RestClientException exception) {
@@ -271,8 +311,13 @@ public class DocumentExportService {
                 .build();
     }
 
-    private DocumentFileResponse saveFile(UUID documentId, ExportFormat format, String fileName,
-                                          String mimeType, byte[] bytes) {
+    private DocumentFileResponse saveFile(
+            UUID documentId,
+            ExportFormat format,
+            String fileName,
+            String mimeType,
+            byte[] bytes,
+            String documentOwner) {
         long startedAt = System.nanoTime();
         log.info("Calling document-store-service save exported file documentId={} format={} sizeBytes={}",
                 documentId,
@@ -285,7 +330,8 @@ public class DocumentExportService {
                 .mimeType(mimeType)
                 .fileContentBase64(Base64.getEncoder().encodeToString(bytes));
         try {
-            DocumentFileResponse response = documentFilesApi.createDocumentFile(request);
+            DocumentFileResponse response =
+                    producerDocumentFilesApi.createDocumentFile(request, documentOwner);
             log.info("document-store-service save exported file returned documentId={} format={} fileId={} durationMs={}",
                     documentId,
                     format,

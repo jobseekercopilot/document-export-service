@@ -10,10 +10,10 @@ Export. Document Export builds that client from reviewed source during Maven
 | Property | Value |
 | --- | --- |
 | Producer | `jobseekercopilot/document-store-service` |
-| Producer revision | `fedcdbdec63795269c4e4c4f43fc32f38c6327b1` |
+| Producer revision | `b696fe81e9b900e0749e185f595ff4c98c24119d` |
 | Producer path | `contracts/openapi.json` |
-| Contract version | `1.0.0` |
-| SHA-256 | `410ab1a7a2e8a5a5ad374443ec834f6aef7f778f6936b3ef90c33f8e580cdbd9` |
+| Contract version | `1.1.0` |
+| SHA-256 | `3d0595c83cc66d9037e08af6a4b087c115c9a5d99ec71491f1aa5fc3afffd6ba` |
 | Generator | OpenAPI Generator `7.5.0`, Java `resttemplate` library |
 
 `src/main/openapi/document-store-service.SOURCE` records the source revision
@@ -32,14 +32,17 @@ Document Export currently requires:
 - generated-document ID, file type, filename, MIME type, source and active
   metadata;
 - required base64 file content on exported-file writes.
+- service-token authentication and `X-Document-Owner` on every read and write.
 
 `scripts/verify-contracts.sh` checks provenance, checksum and this semantic
 boundary. `scripts/test-contract-policy.sh` proves that missing, drifted or
 incompatible inputs fail closed.
 
-The current producer API is not an approved authentication boundary. DOC-04,
-STORE-01 and GW-01 own the required owner-scoped security contract. Updating
-this source pin does not waive those beta blockers.
+The pinned producer contract implements STORE-01's owner-scoped security
+boundary. Document Export uses the Store reader role for reads and producer
+role for file writes. Gateway adoption, Infrastructure credential injection
+and integrated two-user evidence remain dependencies under DOCGEN-15, GW-01
+and INFRA-08.
 
 ## Updating the pin
 
