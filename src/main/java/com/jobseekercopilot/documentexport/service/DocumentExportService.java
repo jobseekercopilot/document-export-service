@@ -51,6 +51,7 @@ public class DocumentExportService {
     private final DocumentFilesApi readerDocumentFilesApi;
     private final DocxExportService docxExportService;
     private final PdfExportService pdfExportService;
+    private final DocxUploadInspector docxUploadInspector;
     private final RestTemplate restTemplate;
 
     @Value("${services.document-store-service.base-url:http://localhost:8089}")
@@ -64,12 +65,14 @@ public class DocumentExportService {
             DocumentFilesApi readerDocumentFilesApi,
             DocxExportService docxExportService,
             PdfExportService pdfExportService,
+            DocxUploadInspector docxUploadInspector,
             RestTemplate restTemplate) {
         this.generatedDocumentsApi = generatedDocumentsApi;
         this.producerDocumentFilesApi = producerDocumentFilesApi;
         this.readerDocumentFilesApi = readerDocumentFilesApi;
         this.docxExportService = docxExportService;
         this.pdfExportService = pdfExportService;
+        this.docxUploadInspector = docxUploadInspector;
         this.restTemplate = restTemplate;
     }
 
@@ -393,6 +396,7 @@ public class DocumentExportService {
                 && !mimeType(uploadedFormat).equals(contentType)) {
             throw new IllegalArgumentException("Uploaded file MIME type does not match " + uploadedFormat);
         }
+        docxUploadInspector.inspect(file);
     }
 
     private String slug(String value) {

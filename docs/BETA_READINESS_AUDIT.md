@@ -8,6 +8,14 @@ Update 2026-07-24: DOCGEN-15 now implements the Document Export producer-side
 service identity and owner-bound Store calls. Gateway adoption, runtime secret
 injection and integrated two-user evidence are still required.
 
+Update 2026-07-26: EXPORT-02 now streams and inspects untrusted OOXML, rejects
+active/external/unsafe content, enforces configurable upload and render
+budgets, and proves UK/Unicode text, DOCX heading semantics, tagged PDF
+language, active HTTPS links, content-stream reading order and an approved
+embedded DejaVu Sans font with synthetic tests. Third-party dependency, font
+and original-template notices are reviewed in `THIRD_PARTY_NOTICES.md`.
+Independent security/licence review remains an external release gate.
+
 ## Verified responsibility
 
 The service fetches generated text from Document Store, converts it to DOCX
@@ -47,25 +55,15 @@ stored text, not from the uploaded DOCX, so user edits are not represented.
 3. `documentKind` is not checked against the stored document type.
 4. Exporting multiple formats is not atomic; partial saves can leave an
    inconsistent active file set.
-5. Upload inspection is delegated to weak downstream ZIP checks and has no
-   malware, macro, external relationship, decompression, or content-policy
-   evidence.
-6. Render input and output have no service-level length, page, memory, or
-   response-size budgets.
-7. PDF uses built-in Helvetica and DOCX requests Aptos; Unicode coverage,
-   font substitution, licensing, accessibility, and environment consistency
-   have not been demonstrated.
-8. There are no tests for PDF text extraction, DOCX editability after a real
-   office round trip, links, page breaks, large content, malicious input or
-   accessibility. Service-boundary denial and owner propagation are covered,
-   but integrated two-user denial remains outstanding.
-9. Downstream calls do not share a bounded timeout/retry/idempotency policy.
-10. Third-party dependency and licence review evidence is incomplete.
-11. The Dockerfile lacks a non-root runtime, digest-pinned bases, explicit
+5. A real-office DOCX edit/save round trip and integrated two-user denial
+   remain outstanding system evidence; local structural/quality and
+   service-boundary tests do not replace them.
+6. Downstream calls do not share a bounded timeout/retry/idempotency policy.
+7. The Dockerfile lacks a non-root runtime, digest-pinned bases, explicit
     resource constraints, and supply-chain scan evidence.
-12. Wider document-generation consumers still need the same reproducible
+8. Wider document-generation consumers still need the same reproducible
     contract approach under DOCGEN-02/DOCGEN-03.
-13. Current Spring, Tomcat, Jackson, compression, POI, logging, and Swagger UI
+9. Current Spring, Tomcat, Jackson, compression, POI, logging, and Swagger UI
     dependency findings include untriaged Critical/High advisories.
 
 ## Required validation

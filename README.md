@@ -4,12 +4,13 @@ Renders stored generated-document text to DOCX and PDF and writes exported
 bytes back to `document-store-service`.
 
 This service is **not beta-ready**. Its build is reproducible from committed
-source and its service-to-service export boundary now requires an authenticated
-Gateway identity with owner-bound, role-correct Document Store calls. The
-Gateway consumer and deployment credential rollout still have to adopt that
-contract, and the replacement flow creates a PDF from the old stored text
-instead of the uploaded DOCX. Export quality, accessibility, resource bounds,
-malicious-document handling, and third-party licence evidence are incomplete.
+source, its service-to-service boundary requires an authenticated Gateway
+identity with owner-bound Store calls, and untrusted DOCX uploads and in-memory
+renders now have explicit safety budgets. PDF/DOCX output has synthetic
+Unicode, accessible structure, link, reading-order and reviewed-font evidence.
+The Gateway and deployment still have to adopt the identity contract, and the
+replacement flow still creates a PDF from old stored text instead of the
+uploaded DOCX.
 See [`docs/BETA_READINESS_AUDIT.md`](docs/BETA_READINESS_AUDIT.md).
 
 ## Technology
@@ -74,6 +75,11 @@ Job Seeker Copilot artifact.
 
 Use synthetic content only. Do not commit exported files, uploads, fonts,
 temporary data, or real documents.
+
+The enforced upload/render boundary and configurable limits are documented in
+[`docs/UPLOAD_AND_RENDER_POLICY.md`](docs/UPLOAD_AND_RENDER_POLICY.md).
+Reviewed dependency, font and template evidence is in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ## Licence
 

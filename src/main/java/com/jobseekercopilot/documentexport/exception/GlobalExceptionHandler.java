@@ -32,7 +32,10 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     ResponseEntity<ApiError> uploadTooLarge(MaxUploadSizeExceededException exception, HttpServletRequest request) {
-        return response(HttpStatus.PAYLOAD_TOO_LARGE, "Uploaded file must be 25MB or less.", request);
+        return response(
+                HttpStatus.PAYLOAD_TOO_LARGE,
+                "Uploaded file must be 10MB or less.",
+                request);
     }
 
     @ExceptionHandler({DownstreamServiceException.class, DocumentExportException.class})

@@ -2,6 +2,7 @@ package com.jobseekercopilot.documentexport.service;
 
 import com.jobseekercopilot.documentexport.exception.DocumentExportException;
 import com.jobseekercopilot.generated.documentstoreservice.model.GeneratedDocumentResponse;
+import com.lowagie.text.Anchor;
 import com.lowagie.text.Document;
 import com.lowagie.text.DocumentException;
 import com.lowagie.text.Element;
@@ -11,13 +12,15 @@ import com.lowagie.text.Phrase;
 import com.lowagie.text.Rectangle;
 import com.lowagie.text.pdf.ColumnText;
 import com.lowagie.text.pdf.PdfContentByte;
+import com.lowagie.text.pdf.PdfName;
 import com.lowagie.text.pdf.PdfPageEventHelper;
+import com.lowagie.text.pdf.PdfReader;
+import com.lowagie.text.pdf.PdfString;
 import com.lowagie.text.pdf.PdfWriter;
 import com.lowagie.text.pdf.draw.LineSeparator;
 import org.springframework.stereotype.Service;
 
 import java.awt.Color;
-import java.io.ByteArrayOutputStream;
 
 @Service
 public class PdfExportService {
@@ -25,15 +28,48 @@ public class PdfExportService {
     private static final Color MUTED_TEXT = new Color(75, 85, 99);
     private static final Color ACCENT_BLUE = new Color(37, 99, 235);
 
+    private final RenderBudget renderBudget;
+    private final ExportFontProvider fontProvider;
+
+    public PdfExportService(
+            RenderBudget renderBudget,
+            ExportFontProvider fontProvider) {
+        this.renderBudget = renderBudget;
+        this.fontProvider = fontProvider;
+    }
+
     public byte[] export(GeneratedDocumentResponse generatedDocument) {
-        try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+        DocumentTemplate template = DocumentTemplate.from(generatedDocument);
+        RenderBudget.Session session =
+                renderBudget.start(generatedDocument, template);
+        try (BoundedByteArrayOutputStream output = session.output()) {
             Document pdf = new Document(new Rectangle(595, 842), 50, 50, 50, 58);
             PdfWriter writer = PdfWriter.getInstance(pdf, output);
-            writer.setPageEvent(new BrandingFooter());
+            writer.setTagged();
+            writer.getExtraCatalog().put(
+                    PdfName.LANG,
+                    new PdfString("en-GB"));
+            writer.setPageEvent(
+                    new BrandingFooter(font(8, Font.NORMAL, MUTED_TEXT)));
+            pdf.addTitle(
+                    generatedDocument.getTitle() == null
+                            ? "Generated document"
+                            : generatedDocument.getTitle());
+            pdf.addAuthor("Job Seeker Copilot");
+            pdf.addSubject("Accessible job application document export");
+            pdf.addCreator("Job Seeker Copilot Document Export Service");
             pdf.open();
-            DocumentTemplate.from(generatedDocument).blocks().forEach(block -> addBlock(pdf, block));
+            for (DocumentTemplate.Block block : template.blocks()) {
+                session.checkDeadline();
+                addBlock(pdf, block);
+            }
             pdf.close();
-            return output.toByteArray();
+            session.checkDeadline();
+            byte[] bytes = output.toByteArray();
+            validatePdf(bytes);
+            return bytes;
+        } catch (DocumentExportException exception) {
+            throw exception;
         } catch (DocumentException exception) {
             throw new DocumentExportException("Failed to create PDF export", exception);
         } catch (Exception exception) {
@@ -58,22 +94,22 @@ public class PdfExportService {
     }
 
     private void addTitle(Document pdf, String title) {
-        Font font = new Font(Font.HELVETICA, 22, Font.BOLD, DARK_TEXT);
+        Font font = font(22, Font.BOLD, DARK_TEXT);
         Paragraph paragraph = new Paragraph(title == null || title.isBlank() ? "Generated Document" : title, font);
         paragraph.setSpacingAfter(4);
         pdf.add(paragraph);
     }
 
     private void addSubtitle(Document pdf, String text) {
-        Font font = new Font(Font.HELVETICA, 11, Font.NORMAL, MUTED_TEXT);
-        Paragraph paragraph = new Paragraph(text, font);
+        Font font = font(11, Font.NORMAL, MUTED_TEXT);
+        Paragraph paragraph = paragraph(text, font);
         paragraph.setSpacingAfter(5);
         pdf.add(paragraph);
     }
 
     private void addContact(Document pdf, String text) {
-        Font font = new Font(Font.HELVETICA, 9, Font.NORMAL, MUTED_TEXT);
-        Paragraph paragraph = new Paragraph(text, font);
+        Font font = font(9, Font.NORMAL, MUTED_TEXT);
+        Paragraph paragraph = paragraph(text, font);
         paragraph.setSpacingAfter(9);
         pdf.add(paragraph);
     }
@@ -87,34 +123,32 @@ public class PdfExportService {
     }
 
     private void addSectionHeading(Document pdf, String text) {
-        Font font = new Font(Font.HELVETICA, 12, Font.BOLD, ACCENT_BLUE);
-        Paragraph paragraph = new Paragraph(text, font);
-        paragraph.setKeepTogether(true);
+        Font font = font(12, Font.BOLD, ACCENT_BLUE);
+        Paragraph paragraph = paragraph(text, font);
         paragraph.setSpacingBefore(12);
         paragraph.setSpacingAfter(5);
         pdf.add(paragraph);
     }
 
     private void addRoleHeading(Document pdf, String text) {
-        Font font = new Font(Font.HELVETICA, 11, Font.BOLD, DARK_TEXT);
-        Paragraph paragraph = new Paragraph(text, font);
-        paragraph.setKeepTogether(true);
+        Font font = font(11, Font.BOLD, DARK_TEXT);
+        Paragraph paragraph = paragraph(text, font);
         paragraph.setSpacingBefore(6);
         paragraph.setSpacingAfter(3);
         pdf.add(paragraph);
     }
 
     private void addParagraph(Document pdf, String text) {
-        Font font = new Font(Font.HELVETICA, 10, Font.NORMAL, DARK_TEXT);
-        Paragraph paragraph = new Paragraph(text, font);
+        Font font = font(10, Font.NORMAL, DARK_TEXT);
+        Paragraph paragraph = paragraph(text, font);
         paragraph.setLeading(14);
         paragraph.setSpacingAfter(7);
         pdf.add(paragraph);
     }
 
     private void addBullet(Document pdf, String text) {
-        Font font = new Font(Font.HELVETICA, 10, Font.NORMAL, DARK_TEXT);
-        Paragraph paragraph = new Paragraph("\u2022 " + text, font);
+        Font font = font(10, Font.NORMAL, DARK_TEXT);
+        Paragraph paragraph = paragraph("\u2022 " + text, font);
         paragraph.setIndentationLeft(18);
         paragraph.setFirstLineIndent(-9);
         paragraph.setLeading(14);
@@ -122,11 +156,55 @@ public class PdfExportService {
         pdf.add(paragraph);
     }
 
+    private Font font(float size, int style, Color color) {
+        return new Font(fontProvider.pdfFont(), size, style, color);
+    }
+
+    private Paragraph paragraph(String text, Font font) {
+        Paragraph paragraph = new Paragraph();
+        for (AccessibleText.Segment segment
+                : AccessibleText.segments(text)) {
+            if (segment.isLink()) {
+                Font linkFont = new Font(
+                        fontProvider.pdfFont(),
+                        font.getSize(),
+                        font.getStyle() | Font.UNDERLINE,
+                        ACCENT_BLUE);
+                Anchor anchor = new Anchor(segment.text(), linkFont);
+                anchor.setReference(segment.url());
+                paragraph.add(anchor);
+            } else {
+                paragraph.add(new Phrase(segment.text(), font));
+            }
+        }
+        return paragraph;
+    }
+
+    private void validatePdf(byte[] bytes) throws Exception {
+        PdfReader reader = new PdfReader(bytes);
+        try {
+            renderBudget.validatePdfPages(reader.getNumberOfPages());
+            if (reader.getCatalog().get(PdfName.STRUCTTREEROOT) == null
+                    || reader.getCatalog().get(PdfName.LANG) == null) {
+                throw new DocumentExportException(
+                        "Rendered PDF is missing structural accessibility metadata");
+            }
+        } finally {
+            reader.close();
+        }
+    }
+
     private static class BrandingFooter extends PdfPageEventHelper {
+
+        private final Font font;
+
+        private BrandingFooter(Font font) {
+            this.font = font;
+        }
+
         @Override
         public void onEndPage(PdfWriter writer, Document document) {
             PdfContentByte canvas = writer.getDirectContent();
-            Font font = new Font(Font.HELVETICA, 8, Font.NORMAL, MUTED_TEXT);
             Phrase phrase = new Phrase(DocumentTemplate.BRAND_FOOTER, font);
             ColumnText.showTextAligned(canvas, Element.ALIGN_CENTER, phrase,
                     (document.left() + document.right()) / 2,

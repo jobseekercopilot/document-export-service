@@ -1,5 +1,6 @@
 package com.jobseekercopilot.documentexport.service;
 
+import com.jobseekercopilot.documentexport.config.DocumentExportLimits;
 import com.jobseekercopilot.documentexport.dto.DocumentExportRequest;
 import com.jobseekercopilot.documentexport.dto.DocumentExportResponse;
 import com.jobseekercopilot.documentexport.dto.DocumentKind;
@@ -46,18 +47,24 @@ class DocumentExportServiceTest {
     @Mock private GeneratedDocumentsApi generatedDocumentsApi;
     @Mock private DocumentFilesApi producerDocumentFilesApi;
     @Mock private DocumentFilesApi readerDocumentFilesApi;
+    @Mock private DocxUploadInspector docxUploadInspector;
     @Mock private RestTemplate restTemplate;
 
     private DocumentExportService service;
 
     @BeforeEach
     void setUp() {
+        DocumentExportLimits limits = new DocumentExportLimits();
+        RenderBudget renderBudget = new RenderBudget(limits);
         service = new DocumentExportService(
                 generatedDocumentsApi,
                 producerDocumentFilesApi,
                 readerDocumentFilesApi,
-                new DocxExportService(),
-                new PdfExportService(),
+                new DocxExportService(renderBudget),
+                new PdfExportService(
+                        renderBudget,
+                        new ExportFontProvider(limits)),
+                docxUploadInspector,
                 restTemplate);
         ReflectionTestUtils.setField(
                 service,
@@ -191,6 +198,7 @@ class DocumentExportServiceTest {
                 .getDocumentById(documentId, OWNER);
         verify(producerDocumentFilesApi).createDocumentFile(any(), eq(OWNER));
         verify(readerDocumentFilesApi).getLatestFilesForDocument(documentId, OWNER);
+        verify(docxUploadInspector).inspect(file);
     }
 
     private GeneratedDocumentResponse document(UUID documentId) {
