@@ -63,13 +63,26 @@ All limits are configurable through the `DOCUMENT_EXPORT_UPLOAD_*` and
 
 ## Accessible output and fonts
 
+- `DocumentTemplate` is the format-neutral render model. It classifies the
+  candidate title/contact header, known CV section headings, role headings,
+  paragraphs and contiguous bullet items once; DOCX and PDF consume the same
+  immutable ordered block list.
 - DOCX paragraphs use `Title`, `Heading1`, `Heading2`, `Normal` and
-  `ListParagraph` semantics and mark runs as `en-GB`.
+  `ListParagraph` semantics, use real OOXML bullet numbering, and mark runs as
+  `en-GB`.
 - PDF output is tagged, carries catalog language `en-GB`, embeds a Unicode
-  character map and preserves body content-stream order.
-- Plain `https://` URLs become active links; other schemes remain plain text.
+  character map, maps titles/headings/lists/paragraphs to `H1`/`H2`/`H3`,
+  `L`/`LI` and `P` structure elements, and preserves body content-stream
+  order. The repeated brand footer and accent rule are marked as artefacts so
+  they do not interrupt assistive navigation or semantic text extraction.
+- Only syntactically valid, absolute `https://` URLs with a host and without
+  embedded credentials become active links. HTTP, active schemes, malformed
+  URLs and credential-bearing HTTPS candidates remain inert plain text.
+- Unrecognised content is never interpreted as markup or active content. It
+  remains escaped plain paragraph text in the shared block order.
 - Synthetic regression fixtures cover UK addresses, curly punctuation, the
-  pound sign and Latin extended characters.
+  pound sign, Latin extended characters, headings, lists, safe/unsafe links and
+  equivalent DOCX/PDF text extraction.
 - DOCX requests `DejaVu Sans` for Latin, East Asian, complex-script and
   high-ANSI ranges. Office applications may substitute a locally available
   accessible font when DejaVu Sans is not installed.
@@ -83,3 +96,21 @@ repository. The runtime path can be set with
 `DOCUMENT_EXPORT_PDF_FONT_PATH`, but the file must be named
 `DejaVuSans.ttf` and identify internally as DejaVu Sans. See
 `THIRD_PARTY_NOTICES.md` for the font notice.
+
+## Metadata and privacy
+
+DOCX and PDF use the same bounded metadata model:
+
+| Field | Exported value |
+| --- | --- |
+| Title | The visible stored document title, collapsed to one line and capped at 200 Unicode code points; otherwise `Generated document` |
+| Author | `Job Seeker Copilot` |
+| Creator | The generic Job Seeker Copilot export service |
+| Subject/description | Generic accessible, owner-controlled export wording |
+| Version | The positive stored document version, when supplied |
+
+The metadata model never copies owner/user IDs, job or application IDs,
+creator identity, source filename, contact details or document body content.
+The title is deliberately retained because it is already visible document
+content; callers must therefore continue to use a user-approved, bounded
+document title. Invalid or absent versions are omitted rather than inferred.

@@ -6,13 +6,17 @@ import org.apache.poi.xwpf.model.XWPFHeaderFooterPolicy;
 import org.apache.poi.xwpf.usermodel.Borders;
 import org.apache.poi.xwpf.usermodel.ParagraphAlignment;
 import org.apache.poi.xwpf.usermodel.UnderlinePatterns;
+import org.apache.poi.xwpf.usermodel.XWPFAbstractNum;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFFooter;
 import org.apache.poi.xwpf.usermodel.XWPFHyperlinkRun;
+import org.apache.poi.xwpf.usermodel.XWPFNumbering;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTAbstractNum;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTPageMar;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTSectPr;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.STNumberFormat;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -36,12 +40,13 @@ public class DocxExportService {
                 renderBudget.start(document, template);
         try (XWPFDocument docx = new XWPFDocument();
              BoundedByteArrayOutputStream output = session.output()) {
-            configureMetadata(docx, document);
+            configureMetadata(docx, template.metadata());
             configurePage(docx);
             addFooter(docx);
+            BigInteger bulletNumbering = configureBulletNumbering(docx);
             for (DocumentTemplate.Block block : template.blocks()) {
                 session.checkDeadline();
-                addBlock(docx, block);
+                addBlock(docx, block, bulletNumbering);
             }
             docx.write(output);
             session.checkDeadline();
@@ -51,7 +56,10 @@ public class DocxExportService {
         }
     }
 
-    private void addBlock(XWPFDocument docx, DocumentTemplate.Block block) {
+    private void addBlock(
+            XWPFDocument docx,
+            DocumentTemplate.Block block,
+            BigInteger bulletNumbering) {
         switch (block.style()) {
             case TITLE -> addTitle(docx, block.text());
             case SUBTITLE -> addSubtitle(docx, block.text());
@@ -59,7 +67,10 @@ public class DocxExportService {
             case ACCENT_LINE -> addAccentLine(docx);
             case SECTION_HEADING -> addSectionHeading(docx, block.text());
             case ROLE_HEADING -> addRoleHeading(docx, block.text());
-            case BULLET -> addBullet(docx, block.text());
+            case BULLET -> addBullet(
+                    docx,
+                    block.text(),
+                    bulletNumbering);
             case PARAGRAPH -> addParagraph(docx, block.text());
             case FOOTER -> {
                 // Footer is added through the document section so it repeats on every page.
@@ -81,18 +92,35 @@ public class DocxExportService {
 
     private void configureMetadata(
             XWPFDocument docx,
-            GeneratedDocumentResponse document) {
+            DocumentMetadata metadata) {
         var properties = docx.getProperties().getCoreProperties();
-        properties.setTitle(
-                document.getTitle() == null || document.getTitle().isBlank()
-                        ? "Generated document"
-                        : document.getTitle());
-        properties.setCreator("Job Seeker Copilot");
-        properties.setSubjectProperty(
-                "Accessible job application document export");
-        properties.setDescription(
-                "Owner-controlled document rendered by Job Seeker Copilot");
+        properties.setTitle(metadata.title());
+        properties.setCreator(metadata.author());
+        properties.setSubjectProperty(metadata.subject());
+        properties.setDescription(metadata.description());
+        properties.setKeywords(metadata.keywords());
+        if (!metadata.version().isBlank()) {
+            properties.setVersion(metadata.version());
+            properties.setRevision(metadata.version());
+        }
         properties.setContentStatus("Final");
+    }
+
+    private BigInteger configureBulletNumbering(XWPFDocument docx) {
+        XWPFNumbering numbering = docx.createNumbering();
+        CTAbstractNum definition = CTAbstractNum.Factory.newInstance();
+        definition.setAbstractNumId(BigInteger.ZERO);
+        var level = definition.addNewLvl();
+        level.setIlvl(BigInteger.ZERO);
+        level.addNewStart().setVal(BigInteger.ONE);
+        level.addNewNumFmt().setVal(STNumberFormat.BULLET);
+        level.addNewLvlText().setVal("\u2022");
+        var indentation = level.addNewPPr().addNewInd();
+        indentation.setLeft(BigInteger.valueOf(360));
+        indentation.setHanging(BigInteger.valueOf(180));
+        BigInteger abstractId = numbering.addAbstractNum(
+                new XWPFAbstractNum(definition));
+        return numbering.addNum(abstractId);
     }
 
     private void addFooter(XWPFDocument docx) {
@@ -175,15 +203,14 @@ public class DocxExportService {
         addTextRuns(paragraph, text, 10, false, DARK_TEXT);
     }
 
-    private void addBullet(XWPFDocument docx, String text) {
+    private void addBullet(
+            XWPFDocument docx,
+            String text,
+            BigInteger bulletNumbering) {
         XWPFParagraph paragraph = docx.createParagraph();
         paragraph.setStyle("ListParagraph");
-        paragraph.setIndentationLeft(360);
-        paragraph.setIndentationHanging(180);
+        paragraph.setNumID(bulletNumbering);
         paragraph.setSpacingAfter(60);
-        XWPFRun bullet = paragraph.createRun();
-        applyFont(bullet, 10, false, ACCENT_BLUE);
-        bullet.setText("\u2022 ");
         addTextRuns(paragraph, text, 10, false, DARK_TEXT);
     }
 

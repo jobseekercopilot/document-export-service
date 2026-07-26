@@ -1,5 +1,7 @@
 package com.jobseekercopilot.documentexport.service;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -8,7 +10,7 @@ import java.util.regex.Pattern;
 final class AccessibleText {
 
     private static final Pattern HTTPS_URL = Pattern.compile(
-            "https://[^\\s<>\"{}|\\\\^`\\[\\]]+");
+            "(?i)https://[^\\s<>\"{}|\\\\^`\\[\\]]+");
 
     private AccessibleText() {
     }
@@ -26,12 +28,15 @@ final class AccessibleText {
             if (linkEnd <= matcher.start()) {
                 continue;
             }
+            String link = text.substring(matcher.start(), linkEnd);
+            if (!isSafeHttpsLink(link)) {
+                continue;
+            }
             if (matcher.start() > cursor) {
                 segments.add(new Segment(
                         text.substring(cursor, matcher.start()),
                         null));
             }
-            String link = text.substring(matcher.start(), linkEnd);
             segments.add(new Segment(link, link));
             cursor = linkEnd;
         }
@@ -42,6 +47,21 @@ final class AccessibleText {
             segments.add(new Segment(text, null));
         }
         return List.copyOf(segments);
+    }
+
+    private static boolean isSafeHttpsLink(String candidate) {
+        try {
+            URI uri = new URI(candidate);
+            return "https".equalsIgnoreCase(uri.getScheme())
+                    && uri.isAbsolute()
+                    && uri.getHost() != null
+                    && !uri.getHost().isBlank()
+                    && uri.getUserInfo() == null
+                    && candidate.codePoints()
+                            .noneMatch(Character::isISOControl);
+        } catch (URISyntaxException exception) {
+            return false;
+        }
     }
 
     private static int trimTrailingPunctuation(

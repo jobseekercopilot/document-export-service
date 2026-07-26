@@ -16,6 +16,12 @@ embedded DejaVu Sans font with synthetic tests. Third-party dependency, font
 and original-template notices are reviewed in `THIRD_PARTY_NOTICES.md`.
 Independent security/licence review remains an external release gate.
 
+Update 2026-07-26: EXPORT-03 now applies one immutable ordered render model to
+both formats, emits real DOCX/PDF list objects, accepts only absolute
+credential-free HTTPS links, and shares privacy-bounded title/author/version
+metadata. Synthetic tests compare extracted Unicode heading/list text across
+DOCX and PDF and prove unsafe or unknown content remains inert plain text.
+
 ## Verified responsibility
 
 The service fetches generated text from Document Store, converts it to DOCX

@@ -15,6 +15,8 @@ import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.UUID;
 import java.util.zip.ZipEntry;
@@ -40,7 +42,13 @@ class ExportRendererTest {
             assertTrue(text.contains("Personal Summary"));
             assertTrue(text.contains("First paragraph."));
             assertTrue(text.contains("Core Skills"));
-            assertTrue(text.contains("\u2022 Java: Built APIs"));
+            assertTrue(text.contains("Java: Built APIs"));
+            assertTrue(docx.getParagraphs().stream().anyMatch(
+                    paragraph -> "Java: Built APIs".equals(
+                            paragraph.getText())
+                            && "ListParagraph".equals(
+                                    paragraph.getStyleID())
+                            && paragraph.getNumID() != null));
             assertTrue(footerText(docx).contains(DocumentTemplate.BRAND_FOOTER));
         }
     }
@@ -87,7 +95,7 @@ class ExportRendererTest {
         assertTrue(text.contains("alex@example.com | London, SW1A 1AA"));
         assertTrue(text.contains("Personal Summary"));
         assertTrue(text.contains("Core Skills"));
-        assertTrue(text.contains(DocumentTemplate.BRAND_FOOTER));
+        assertTrue(!text.contains(DocumentTemplate.BRAND_FOOTER));
     }
 
     @Test
@@ -101,7 +109,7 @@ class ExportRendererTest {
         assertTrue(text.contains("Application for Developer"));
         assertTrue(text.contains("Dear Hiring Manager,"));
         assertTrue(text.contains("Kind regards"));
-        assertTrue(text.contains(DocumentTemplate.BRAND_FOOTER));
+        assertTrue(!text.contains(DocumentTemplate.BRAND_FOOTER));
     }
 
     @Test
@@ -135,9 +143,25 @@ class ExportRendererTest {
                     .map(XWPFHyperlinkRun.class::cast)
                     .map(run -> run.getHyperlink(docx))
                     .filter(java.util.Objects::nonNull)
-                    .anyMatch(link ->
-                            "https://example.test/zoe".equals(
-                                    link.getURL())));
+                    .map(link -> link.getURL())
+                    .toList()
+                    .equals(List.of("https://example.test/zoe")));
+            assertEquals(
+                    "7",
+                    docx.getProperties()
+                            .getCoreProperties().getVersion());
+            assertMetadataIsPrivacyBounded(
+                    Map.of(
+                            "title", docx.getProperties()
+                                    .getCoreProperties().getTitle(),
+                            "author", docx.getProperties()
+                                    .getCoreProperties().getCreator(),
+                            "subject", docx.getProperties()
+                                    .getCoreProperties().getSubject(),
+                            "keywords", docx.getProperties()
+                                    .getCoreProperties().getKeywords(),
+                            "version", docx.getProperties()
+                                    .getCoreProperties().getVersion()));
         }
 
         try (ZipInputStream zip = new ZipInputStream(
@@ -166,24 +190,143 @@ class ExportRendererTest {
                 text,
                 "Zoë O’Connor",
                 "Personal Summary",
-                "Māori localisation",
-                DocumentTemplate.BRAND_FOOTER);
+                "Māori localisation");
         assertTrue(text.contains("naïve façade; £95k"));
 
         PdfReader reader = new PdfReader(bytes);
         try {
             assertNotNull(reader.getCatalog().get(
                     PdfName.STRUCTTREEROOT));
+            List<PdfName> structureRoles = pdfStructureRoles(
+                    reader.getCatalog().get(
+                            PdfName.STRUCTTREEROOT));
+            assertTrue(structureRoles.contains(PdfName.H1));
+            assertTrue(structureRoles.contains(PdfName.L));
+            assertTrue(structureRoles.contains(PdfName.LI));
             assertEquals(
                     "en-GB",
                     reader.getCatalog()
                             .getAsString(PdfName.LANG)
                             .toUnicodeString());
-            assertTrue(hasHttpsLink(reader, 1));
+            assertEquals(
+                    List.of("https://example.test/zoe"),
+                    pdfLinks(reader));
             assertTrue(hasEmbeddedDejaVuFont(reader, 1));
+            assertEquals("7", reader.getInfo().get("DocumentVersion"));
+            assertMetadataIsPrivacyBounded(reader.getInfo());
         } finally {
             reader.close();
         }
+    }
+
+    @Test
+    void extractedHeadingListAndUnicodeTextIsEquivalentAcrossFormats()
+            throws Exception {
+        GeneratedDocumentResponse document = accessibleDocument();
+        byte[] docxBytes = docxExportService().export(document);
+        byte[] pdfBytes = pdfExportService().export(document);
+
+        String docxText;
+        try (XWPFDocument docx = new XWPFDocument(
+                new ByteArrayInputStream(docxBytes))) {
+            docxText = bodyText(docx);
+            assertTrue(docx.getParagraphs().stream().anyMatch(
+                    paragraph -> "Personal Summary".equals(
+                            paragraph.getText())
+                            && "Heading1".equals(
+                                    paragraph.getStyleID())));
+            assertTrue(docx.getParagraphs().stream().anyMatch(
+                    paragraph -> "Māori localisation: naïve façade; £95k."
+                            .equals(paragraph.getText())
+                            && paragraph.getNumID() != null));
+        }
+
+        String pdfText = pdfText(pdfBytes);
+        assertTrue(pdfText.contains("\u2022"));
+        assertEquals(
+                normalizedExtractedText(docxText),
+                normalizedExtractedText(pdfText));
+    }
+
+    @Test
+    void unknownMarkupAndUnsafeSchemesRemainInertPlainText()
+            throws Exception {
+        GeneratedDocumentResponse document = unknownContentDocument();
+        byte[] docxBytes = docxExportService().export(document);
+        byte[] pdfBytes = pdfExportService().export(document);
+
+        try (XWPFDocument docx = new XWPFDocument(
+                new ByteArrayInputStream(docxBytes))) {
+            assertTrue(bodyText(docx).contains(
+                    "<custom data-note=\"keep plain\"> & "
+                            + "javascript:alert(1)"));
+            assertEquals(
+                    0,
+                    docx.getParagraphs().stream()
+                            .flatMap(paragraph ->
+                                    paragraph.getRuns().stream())
+                            .filter(XWPFHyperlinkRun.class::isInstance)
+                            .count());
+        }
+
+        String pdfText = pdfText(pdfBytes);
+        assertTrue(pdfText.contains(
+                "<custom data-note=\"keep plain\"> & "
+                        + "javascript:alert(1)"));
+        PdfReader reader = new PdfReader(pdfBytes);
+        try {
+            assertEquals(List.of(), pdfLinks(reader));
+        } finally {
+            reader.close();
+        }
+    }
+
+    @Test
+    void taggedPdfPreservesStructureAndTextAcrossPageBoundaries()
+            throws Exception {
+        StringBuilder content = new StringBuilder("""
+                Tailored CV
+
+                Alex Candidate
+
+                Core Skills
+                """);
+        for (int index = 1; index <= 120; index++) {
+            content.append("- Evidence item ")
+                    .append(index)
+                    .append(": deterministic synthetic content.\n");
+        }
+        GeneratedDocumentResponse document =
+                new GeneratedDocumentResponse()
+                        .id(UUID.randomUUID())
+                        .documentType(
+                                GeneratedDocumentResponse.DocumentTypeEnum.CV)
+                        .title("Tailored CV")
+                        .content(content.toString());
+
+        byte[] bytes = pdfExportService().export(document);
+
+        PdfReader reader = new PdfReader(bytes);
+        try {
+            assertTrue(reader.getNumberOfPages() > 1);
+            List<PdfName> roles = pdfStructureRoles(
+                    reader.getCatalog().get(
+                            PdfName.STRUCTTREEROOT));
+            assertTrue(roles.contains(PdfName.H1));
+            assertTrue(roles.contains(PdfName.H2));
+            assertTrue(roles.contains(PdfName.L));
+            assertEquals(
+                    120,
+                    roles.stream()
+                            .filter(PdfName.LI::equals)
+                            .count());
+        } finally {
+            reader.close();
+        }
+
+        String text = pdfText(bytes);
+        assertTrue(text.contains("Evidence item 1:"));
+        assertTrue(text.contains("Evidence item 120:"));
     }
 
     private GeneratedDocumentResponse document() {
@@ -242,6 +385,12 @@ class ExportRendererTest {
     private GeneratedDocumentResponse accessibleDocument() {
         return new GeneratedDocumentResponse()
                 .id(UUID.randomUUID())
+                .version(7)
+                .userId("private-user-123")
+                .jobId("private-job-456")
+                .applicationId("private-application-789")
+                .createdBy("private-owner@example.test")
+                .originalFilename("private-original-name.docx")
                 .documentType(
                         GeneratedDocumentResponse.DocumentTypeEnum.CV)
                 .title("Tailored CV")
@@ -255,9 +404,26 @@ class ExportRendererTest {
                         Personal Summary
                         Built cafés and public APIs across the UK — accessibility first.
                         Portfolio: https://example.test/zoe.
+                        Unsafe references stay plain: http://example.test/old javascript:alert(1) https://user:secret@example.test/private.
 
                         Core Skills
                         - Māori localisation: naïve façade; £95k.
+                        """);
+    }
+
+    private GeneratedDocumentResponse unknownContentDocument() {
+        return new GeneratedDocumentResponse()
+                .id(UUID.randomUUID())
+                .documentType(
+                        GeneratedDocumentResponse.DocumentTypeEnum.CV)
+                .title("Tailored CV")
+                .content("""
+                        Tailored CV
+
+                        Alex Candidate
+
+                        Personal Summary
+                        <custom data-note="keep plain"> & javascript:alert(1)
                         """);
     }
 
@@ -311,26 +477,79 @@ class ExportRendererTest {
         }
     }
 
-    private boolean hasHttpsLink(PdfReader reader, int page) {
-        PdfArray annotations =
-                reader.getPageN(page).getAsArray(PdfName.ANNOTS);
-        if (annotations == null) {
-            return false;
-        }
-        for (PdfObject object : annotations.getElements()) {
-            PdfDictionary annotation =
-                    (PdfDictionary) PdfReader.getPdfObject(object);
-            PdfDictionary action = annotation.getAsDict(PdfName.A);
-            PdfString uri = action == null
-                    ? null
-                    : action.getAsString(PdfName.URI);
-            if (uri != null
-                    && "https://example.test/zoe".equals(
-                            uri.toUnicodeString())) {
-                return true;
+    private List<String> pdfLinks(PdfReader reader) {
+        java.util.ArrayList<String> links = new java.util.ArrayList<>();
+        for (int page = 1; page <= reader.getNumberOfPages(); page++) {
+            PdfArray annotations =
+                    reader.getPageN(page).getAsArray(PdfName.ANNOTS);
+            if (annotations == null) {
+                continue;
+            }
+            for (PdfObject object : annotations.getElements()) {
+                PdfDictionary annotation =
+                        (PdfDictionary) PdfReader.getPdfObject(object);
+                PdfDictionary action = annotation.getAsDict(PdfName.A);
+                PdfString uri = action == null
+                        ? null
+                        : action.getAsString(PdfName.URI);
+                if (uri != null) {
+                    links.add(uri.toUnicodeString());
+                }
             }
         }
-        return false;
+        return List.copyOf(links);
+    }
+
+    private List<PdfName> pdfStructureRoles(PdfObject object) {
+        java.util.ArrayList<PdfName> roles =
+                new java.util.ArrayList<>();
+        collectPdfStructureRoles(object, roles);
+        return List.copyOf(roles);
+    }
+
+    private void collectPdfStructureRoles(
+            PdfObject object,
+            List<PdfName> roles) {
+        PdfObject resolved = PdfReader.getPdfObject(object);
+        if (resolved instanceof PdfArray array) {
+            for (PdfObject child : array.getElements()) {
+                collectPdfStructureRoles(child, roles);
+            }
+            return;
+        }
+        if (!(resolved instanceof PdfDictionary dictionary)) {
+            return;
+        }
+        PdfName role = dictionary.getAsName(PdfName.S);
+        if (role != null) {
+            roles.add(role);
+        }
+        PdfObject children = dictionary.get(PdfName.K);
+        if (children != null) {
+            collectPdfStructureRoles(children, roles);
+        }
+    }
+
+    private String normalizedExtractedText(String value) {
+        return value
+                .replace(DocumentTemplate.BRAND_FOOTER, "")
+                .replace("\u2022", "")
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private void assertMetadataIsPrivacyBounded(Map<String, String> metadata) {
+        String values = metadata.values().stream()
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.joining(" "));
+        assertTrue(values.contains("Tailored CV"));
+        assertTrue(values.contains(DocumentMetadata.AUTHOR));
+        assertTrue(values.contains("7"));
+        assertTrue(!values.contains("private-user-123"));
+        assertTrue(!values.contains("private-job-456"));
+        assertTrue(!values.contains("private-application-789"));
+        assertTrue(!values.contains("private-owner@example.test"));
+        assertTrue(!values.contains("private-original-name.docx"));
     }
 
     private boolean hasEmbeddedDejaVuFont(PdfReader reader, int page) {

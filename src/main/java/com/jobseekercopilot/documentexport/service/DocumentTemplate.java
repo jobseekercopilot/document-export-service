@@ -23,16 +23,22 @@ public class DocumentTemplate {
             "education");
 
     private final DocumentKind kind;
+    private final DocumentMetadata metadata;
     private final List<Block> blocks;
 
-    private DocumentTemplate(DocumentKind kind, List<Block> blocks) {
+    private DocumentTemplate(
+            DocumentKind kind,
+            DocumentMetadata metadata,
+            List<Block> blocks) {
         this.kind = kind;
-        this.blocks = blocks;
+        this.metadata = metadata;
+        this.blocks = List.copyOf(blocks);
     }
 
     public static DocumentTemplate from(GeneratedDocumentResponse document) {
         DocumentKind kind = DocumentKind.from(document);
-        String title = title(document, kind);
+        DocumentMetadata metadata = DocumentMetadata.from(document);
+        String title = title(metadata, kind);
         List<String> paragraphs = paragraphs(document.getContent());
         if (!paragraphs.isEmpty() && sameText(paragraphs.get(0), title)) {
             paragraphs = paragraphs.subList(1, paragraphs.size());
@@ -57,7 +63,10 @@ public class DocumentTemplate {
         }
         blocks.add(new Block(BlockStyle.FOOTER, BRAND_FOOTER));
 
-        return new DocumentTemplate(kind, blocks);
+        return new DocumentTemplate(
+                kind,
+                metadata,
+                blocks);
     }
 
     public DocumentKind kind() {
@@ -66,6 +75,10 @@ public class DocumentTemplate {
 
     public List<Block> blocks() {
         return blocks;
+    }
+
+    DocumentMetadata metadata() {
+        return metadata;
     }
 
     private static Header header(List<String> paragraphs, String title, DocumentKind kind) {
@@ -136,11 +149,15 @@ public class DocumentTemplate {
         }
     }
 
-    private static String title(GeneratedDocumentResponse document, DocumentKind kind) {
-        if (document.getTitle() != null && !document.getTitle().isBlank()) {
-            return document.getTitle().trim();
+    private static String title(
+            DocumentMetadata metadata,
+            DocumentKind kind) {
+        if (!"Generated document".equals(metadata.title())) {
+            return metadata.title();
         }
-        return kind == DocumentKind.COVER_LETTER ? "Cover Letter" : "Curriculum Vitae";
+        return kind == DocumentKind.COVER_LETTER
+                ? "Cover Letter"
+                : "Curriculum Vitae";
     }
 
     private static List<String> paragraphs(String content) {
@@ -194,7 +211,15 @@ public class DocumentTemplate {
         FOOTER
     }
 
-    public record Block(BlockStyle style, String text) {}
+    public record Block(BlockStyle style, String text) {
+        public Block {
+            if (style == null) {
+                throw new IllegalArgumentException(
+                        "Render block style is required");
+            }
+            text = text == null ? "" : text;
+        }
+    }
 
     private record Header(String title, String subtitle, String contact, int contentStart) {}
 }
