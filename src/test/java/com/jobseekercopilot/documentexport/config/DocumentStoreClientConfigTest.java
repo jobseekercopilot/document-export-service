@@ -23,7 +23,13 @@ class DocumentStoreClientConfigTest {
                 new DocumentExportCredentials(GATEWAY, PRODUCER, READER);
         RestTemplateBuilder builder = new RestTemplateBuilder();
 
-        ApiKeyAuth readIdentity = (ApiKeyAuth) config.generatedDocumentsApi(
+        ApiKeyAuth readIdentity = (ApiKeyAuth) config.documentStoreReaderDocumentsApi(
+                        builder,
+                        credentials,
+                        "http://document-store.test")
+                .getApiClient()
+                .getAuthentication("serviceToken");
+        ApiKeyAuth writeDocumentIdentity = (ApiKeyAuth) config.documentStoreProducerDocumentsApi(
                         builder,
                         credentials,
                         "http://document-store.test")
@@ -43,6 +49,7 @@ class DocumentStoreClientConfigTest {
                 .getAuthentication("serviceToken");
 
         assertEquals(READER, readIdentity.getApiKey());
+        assertEquals(PRODUCER, writeDocumentIdentity.getApiKey());
         assertEquals(READER, readFileIdentity.getApiKey());
         assertEquals(PRODUCER, writeIdentity.getApiKey());
     }

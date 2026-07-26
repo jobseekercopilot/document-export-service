@@ -91,4 +91,18 @@ if "$repository_root/scripts/verify-api-contract.sh" "$temporary_dir/owner-conte
     exit 1
 fi
 
+copy_contract "$temporary_dir/retry-key"
+jq 'del(
+    .paths["/api/v1/document-exports/documents/{documentId}/upload"].post.parameters[]
+    | select(.name == "Idempotency-Key")
+)' \
+    "$temporary_dir/retry-key/openapi.json" \
+    > "$temporary_dir/retry-key/changed.json"
+mv "$temporary_dir/retry-key/changed.json" "$temporary_dir/retry-key/openapi.json"
+(cd "$temporary_dir/retry-key" && sha256sum openapi.json > SHA256SUMS)
+if "$repository_root/scripts/verify-api-contract.sh" "$temporary_dir/retry-key" >/dev/null 2>&1; then
+    echo "API contract policy negative test accepted removal of replacement idempotency" >&2
+    exit 1
+fi
+
 echo "API contract policy tests passed"

@@ -10,10 +10,10 @@ Export. Document Export builds that client from reviewed source during Maven
 | Property | Value |
 | --- | --- |
 | Producer | `jobseekercopilot/document-store-service` |
-| Producer revision | `b696fe81e9b900e0749e185f595ff4c98c24119d` |
+| Producer revision | `b4d836f04e09c62b88b1d23580fe1f939aa519a9` |
 | Producer path | `contracts/openapi.json` |
-| Contract version | `1.1.0` |
-| SHA-256 | `3d0595c83cc66d9037e08af6a4b087c115c9a5d99ec71491f1aa5fc3afffd6ba` |
+| Contract version | `1.4.0` |
+| SHA-256 | `393eeb9d6701f01c4f83c394f96369113fe36f00ca5273ea1e6a261e060b0a2c` |
 | Generator | OpenAPI Generator `7.5.0`, Java `resttemplate` library |
 
 `src/main/openapi/document-store-service.SOURCE` records the source revision
@@ -26,9 +26,11 @@ sources and binaries are disposable build outputs.
 Document Export currently requires:
 
 - `GET /api/v1/documents/{id}` / `getDocumentById`;
+- `POST /api/v1/documents` / `createDocument`, including idempotency;
+- the application document-version activation operation;
 - `POST /api/v1/document-files` / `createDocumentFile`;
-- the replacement upload and latest-file operations;
-- document ID, title, content and type;
+- replacement upload idempotency and the latest-file operation;
+- document ID, application ID, title, content, type, version and active state;
 - generated-document ID, file type, filename, MIME type, source and active
   metadata;
 - required base64 file content on exported-file writes.

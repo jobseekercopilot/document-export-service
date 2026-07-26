@@ -9,7 +9,7 @@
     "license" : {
       "name" : "Proprietary and confidential"
     },
-    "version" : "1.1.0"
+    "version" : "1.4.0"
   },
   "servers" : [ {
     "url" : "http://localhost:8089",
@@ -61,6 +61,14 @@
         "description" : "Stores a generated document (CV or cover letter)",
         "operationId" : "createDocument",
         "parameters" : [ {
+          "name" : "Idempotency-Key",
+          "in" : "header",
+          "description" : "Stable retry key; the same key and request return the original document",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
           "name" : "X-Document-Owner",
           "in" : "header",
           "description" : "Required owner context for approved service identities",
@@ -99,6 +107,16 @@
                 }
               }
             }
+          },
+          "409" : {
+            "description" : "Version or idempotency conflict",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/GeneratedDocumentResponse"
+                }
+              }
+            }
           }
         },
         "security" : [ {
@@ -111,8 +129,8 @@
     "/api/v1/documents/{generatedDocumentId}/files/upload" : {
       "post" : {
         "tags" : [ "Document Files" ],
-        "summary" : "Upload replacement file",
-        "description" : "Stores a user-uploaded DOCX or PDF replacement for a generated document",
+        "summary" : "Upload replacement DOCX",
+        "description" : "Validates and stores a user-uploaded DOCX replacement for a generated document",
         "operationId" : "uploadReplacementFile",
         "parameters" : [ {
           "name" : "generatedDocumentId",
@@ -126,10 +144,11 @@
         }, {
           "name" : "fileType",
           "in" : "query",
+          "description" : "Private beta replacement uploads support DOCX only",
           "required" : true,
           "schema" : {
             "type" : "string",
-            "enum" : [ "DOCX", "PDF" ]
+            "enum" : [ "DOCX" ]
           }
         }, {
           "name" : "source",
@@ -139,6 +158,14 @@
             "type" : "string",
             "default" : "USER_UPLOADED",
             "enum" : [ "GENERATED", "USER_UPLOADED" ]
+          }
+        }, {
+          "name" : "Idempotency-Key",
+          "in" : "header",
+          "description" : "Stable retry key; the same key and bytes return the original file",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
           }
         }, {
           "name" : "X-Document-Owner",
@@ -172,6 +199,26 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/DocumentFileResponse"
+                }
+              }
+            }
+          },
+          "409" : {
+            "description" : "Idempotency conflict",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/DocumentFileResponse"
+                }
+              }
+            }
+          },
+          "413" : {
+            "description" : "Upload exceeds a configured safety limit",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -244,6 +291,14 @@
         "description" : "Stores exported DOCX or PDF bytes for a generated document",
         "operationId" : "createDocumentFile",
         "parameters" : [ {
+          "name" : "Idempotency-Key",
+          "in" : "header",
+          "description" : "Stable retry key; the same key and bytes return the original file",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
           "name" : "X-Document-Owner",
           "in" : "header",
           "description" : "Required owner context for approved producer identities",
@@ -289,6 +344,26 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/DocumentFileResponse"
+                }
+              }
+            }
+          },
+          "409" : {
+            "description" : "Idempotency conflict",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/DocumentFileResponse"
+                }
+              }
+            }
+          },
+          "413" : {
+            "description" : "Decoded file or archive exceeds a configured safety limit",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -343,6 +418,59 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/GeneratedDocumentResponse"
+                }
+              }
+            }
+          }
+        },
+        "security" : [ {
+          "bearerAuth" : [ ]
+        }, {
+          "serviceToken" : [ ]
+        } ]
+      }
+    },
+    "/api/v1/document-files/{id}/active" : {
+      "patch" : {
+        "tags" : [ "Document Files" ],
+        "summary" : "Restore an exported file version",
+        "description" : "Atomically makes a retained available version current for its document and file type",
+        "operationId" : "activateFileVersion",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "description" : "UUID of the retained exported file",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "X-Document-Owner",
+          "in" : "header",
+          "description" : "Required owner context for approved service identities",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "File version is current",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/DocumentFileResponse"
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "Exported file version not found or unavailable",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/DocumentFileResponse"
                 }
               }
             }
@@ -787,6 +915,16 @@
                 }
               }
             }
+          },
+          "503" : {
+            "description" : "Stored file failed integrity or safety validation",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security" : [ {
@@ -835,54 +973,6 @@
   },
   "components" : {
     "schemas" : {
-      "ExportedDocumentFile" : {
-        "type" : "object",
-        "properties" : {
-          "id" : {
-            "type" : "string",
-            "format" : "uuid"
-          },
-          "generatedDocumentId" : {
-            "type" : "string",
-            "format" : "uuid"
-          },
-          "generatedDocument" : {
-            "$ref" : "#/components/schemas/GeneratedDocument"
-          },
-          "fileType" : {
-            "type" : "string",
-            "enum" : [ "DOCX", "PDF" ]
-          },
-          "fileName" : {
-            "type" : "string"
-          },
-          "mimeType" : {
-            "type" : "string"
-          },
-          "source" : {
-            "type" : "string",
-            "enum" : [ "GENERATED", "USER_UPLOADED" ]
-          },
-          "active" : {
-            "type" : "boolean"
-          },
-          "fileContent" : {
-            "type" : "array",
-            "items" : {
-              "type" : "string",
-              "format" : "byte"
-            }
-          },
-          "createdAt" : {
-            "type" : "string",
-            "format" : "date-time"
-          },
-          "updatedAt" : {
-            "type" : "string",
-            "format" : "date-time"
-          }
-        }
-      },
       "GeneratedDocument" : {
         "type" : "object",
         "properties" : {
@@ -916,6 +1006,16 @@
           "active" : {
             "type" : "boolean"
           },
+          "currentSlot" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "operationKey" : {
+            "type" : "string"
+          },
+          "requestSha256" : {
+            "type" : "string"
+          },
           "originalFilename" : {
             "type" : "string"
           },
@@ -925,6 +1025,55 @@
           },
           "createdBy" : {
             "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "SystemDataDocumentFileSeed" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "generatedDocumentId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "fileType" : {
+            "type" : "string",
+            "enum" : [ "DOCX", "PDF" ]
+          },
+          "fileName" : {
+            "type" : "string"
+          },
+          "mimeType" : {
+            "type" : "string"
+          },
+          "source" : {
+            "type" : "string",
+            "enum" : [ "GENERATED", "USER_UPLOADED" ]
+          },
+          "active" : {
+            "type" : "boolean"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "fileContent" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string",
+              "format" : "byte"
+            }
           },
           "createdAt" : {
             "type" : "string",
@@ -954,7 +1103,7 @@
           "files" : {
             "type" : "array",
             "items" : {
-              "$ref" : "#/components/schemas/ExportedDocumentFile"
+              "$ref" : "#/components/schemas/SystemDataDocumentFileSeed"
             }
           }
         }
@@ -1131,6 +1280,28 @@
         },
         "description" : "Response containing generated document details"
       },
+      "ErrorResponse" : {
+        "type" : "object",
+        "properties" : {
+          "status" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "errors" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        }
+      },
       "DocumentFileResponse" : {
         "type" : "object",
         "properties" : {
@@ -1173,6 +1344,33 @@
             "description" : "Whether this is the active file for its document and type",
             "example" : true
           },
+          "version" : {
+            "type" : "integer",
+            "description" : "Monotonic version within this generated document and file type",
+            "format" : "int32",
+            "example" : 2
+          },
+          "contentSize" : {
+            "type" : "integer",
+            "description" : "Object size in bytes",
+            "format" : "int64",
+            "example" : 18432
+          },
+          "contentSha256" : {
+            "type" : "string",
+            "description" : "Lowercase SHA-256 digest used to verify object integrity"
+          },
+          "storageStatus" : {
+            "type" : "string",
+            "description" : "Storage lifecycle status",
+            "example" : "AVAILABLE",
+            "enum" : [ "LEGACY_DATABASE", "AVAILABLE", "DELETE_PENDING", "UNAVAILABLE" ]
+          },
+          "storedAt" : {
+            "type" : "string",
+            "description" : "Timestamp when the object store accepted the file",
+            "format" : "date-time"
+          },
           "createdAt" : {
             "type" : "string",
             "description" : "Timestamp when the exported file was saved",
@@ -1203,18 +1401,19 @@
             "enum" : [ "DOCX", "PDF", "DOCX", "PDF" ]
           },
           "fileName" : {
+            "maxLength" : 255,
             "type" : "string",
-            "description" : "Download filename",
+            "description" : "Untrusted producer filename used only for extension and safety validation; responses use a generated safe name",
             "example" : "cv.docx"
           },
           "mimeType" : {
             "type" : "string",
-            "description" : "File MIME type",
+            "description" : "Untrusted producer MIME claim validated against the declared type and content",
             "example" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           },
           "fileContentBase64" : {
             "type" : "string",
-            "description" : "Base64-encoded file bytes"
+            "description" : "Base64-encoded file bytes subject to the configured decoded byte and archive limits"
           }
         },
         "description" : "Request to store an exported document file"

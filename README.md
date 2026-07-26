@@ -4,13 +4,18 @@ Renders stored generated-document text to DOCX and PDF and writes exported
 bytes back to `document-store-service`.
 
 This service is **not beta-ready**. Its build is reproducible from committed
-source and its service-to-service export boundary now requires an authenticated
-Gateway identity with owner-bound, role-correct Document Store calls. The
-Gateway consumer and deployment credential rollout still have to adopt that
-contract, and the replacement flow creates a PDF from the old stored text
-instead of the uploaded DOCX. Export quality, accessibility, resource bounds,
-malicious-document handling, and third-party licence evidence are incomplete.
+source and its service-to-service export boundary requires an authenticated
+Gateway identity with owner-bound, role-correct Document Store calls. Edited
+DOCX replacements now create a new inactive document version, preserve the
+uploaded DOCX, render PDF from the imported edit text and activate the version
+only after both files are stored. Gateway adoption, deployment credentials,
+export quality, accessibility, resource bounds, malicious-document handling,
+and third-party licence evidence remain incomplete.
 See [`docs/BETA_READINESS_AUDIT.md`](docs/BETA_READINESS_AUDIT.md).
+
+See [`docs/EDITED_DOCUMENT_REPLACEMENT.md`](docs/EDITED_DOCUMENT_REPLACEMENT.md)
+for the supported private-beta import semantics, partial-failure behaviour and
+retry contract.
 
 ## Technology
 

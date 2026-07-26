@@ -71,7 +71,7 @@ if "$repository_root/scripts/verify-contracts.sh" "$temporary_dir/file-content" 
 fi
 
 copy_contract "$temporary_dir/source-revision"
-sed 's/revision=b696fe8/revision=0000000/' \
+sed 's/revision=b4d836f/revision=0000000/' \
     "$temporary_dir/source-revision/document-store-service.SOURCE" \
     > "$temporary_dir/source-revision/changed.SOURCE"
 mv "$temporary_dir/source-revision/changed.SOURCE" \

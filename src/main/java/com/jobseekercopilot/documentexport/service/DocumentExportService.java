@@ -11,6 +11,7 @@ import com.jobseekercopilot.documentexport.dto.StoreDocumentFileResponse;
 import com.jobseekercopilot.documentexport.exception.DownstreamServiceException;
 import com.jobseekercopilot.generated.documentstoreservice.api.DocumentFilesApi;
 import com.jobseekercopilot.generated.documentstoreservice.api.GeneratedDocumentsApi;
+import com.jobseekercopilot.generated.documentstoreservice.model.CreateDocumentRequest;
 import com.jobseekercopilot.generated.documentstoreservice.model.CreateDocumentFileRequest;
 import com.jobseekercopilot.generated.documentstoreservice.model.DocumentFileResponse;
 import com.jobseekercopilot.generated.documentstoreservice.model.GeneratedDocumentResponse;
@@ -30,25 +31,36 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Service
 public class DocumentExportService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentExportService.class);
     private static final String DOCUMENT_OWNER_HEADER = "X-Document-Owner";
+    private static final String IDEMPOTENCY_HEADER = "Idempotency-Key";
+    private static final Pattern SAFE_IDEMPOTENCY_KEY =
+            Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}");
 
     public static final String DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     public static final String PDF_MIME_TYPE = "application/pdf";
 
-    private final GeneratedDocumentsApi generatedDocumentsApi;
+    private final GeneratedDocumentsApi readerGeneratedDocumentsApi;
+    private final GeneratedDocumentsApi producerGeneratedDocumentsApi;
     private final DocumentFilesApi producerDocumentFilesApi;
     private final DocumentFilesApi readerDocumentFilesApi;
+    private final DocxImportService docxImportService;
     private final DocxExportService docxExportService;
     private final PdfExportService pdfExportService;
     private final RestTemplate restTemplate;
@@ -57,17 +69,23 @@ public class DocumentExportService {
     private String documentStoreBaseUrl;
 
     public DocumentExportService(
-            GeneratedDocumentsApi generatedDocumentsApi,
+            @Qualifier("documentStoreReaderDocumentsApi")
+            GeneratedDocumentsApi readerGeneratedDocumentsApi,
+            @Qualifier("documentStoreProducerDocumentsApi")
+            GeneratedDocumentsApi producerGeneratedDocumentsApi,
             @Qualifier("documentStoreProducerFilesApi")
             DocumentFilesApi producerDocumentFilesApi,
             @Qualifier("documentStoreReaderFilesApi")
             DocumentFilesApi readerDocumentFilesApi,
+            DocxImportService docxImportService,
             DocxExportService docxExportService,
             PdfExportService pdfExportService,
             RestTemplate restTemplate) {
-        this.generatedDocumentsApi = generatedDocumentsApi;
+        this.readerGeneratedDocumentsApi = readerGeneratedDocumentsApi;
+        this.producerGeneratedDocumentsApi = producerGeneratedDocumentsApi;
         this.producerDocumentFilesApi = producerDocumentFilesApi;
         this.readerDocumentFilesApi = readerDocumentFilesApi;
+        this.docxImportService = docxImportService;
         this.docxExportService = docxExportService;
         this.pdfExportService = pdfExportService;
         this.restTemplate = restTemplate;
@@ -103,39 +121,56 @@ public class DocumentExportService {
             MultipartFile file,
             DocumentKind documentKind,
             ExportFormat uploadedFormat,
-            String documentOwner) {
+            String documentOwner,
+            String requestedOperationKey) {
         long startedAt = System.nanoTime();
         log.info("Document export replacement upload started generatedDocumentId={} documentKind={} uploadedFormat={} sizeBytes={}",
                 generatedDocumentId,
                 documentKind,
                 uploadedFormat,
                 file == null ? 0 : file.getSize());
-        fetchDocument(generatedDocumentId, documentOwner);
         validateUpload(file, documentKind, uploadedFormat);
+        GeneratedDocumentResponse currentDocument =
+                fetchDocument(generatedDocumentId, documentOwner);
+        validateReplacementTarget(currentDocument, documentKind);
+        byte[] uploadedBytes = readUpload(file);
+        String importedContent = docxImportService.importContent(uploadedBytes);
+        String originalFilename = safeOriginalFilename(file.getOriginalFilename());
+        ReplacementOperationKeys operationKeys =
+                operationKeys(generatedDocumentId, documentOwner, requestedOperationKey);
 
+        GeneratedDocumentResponse replacement = createReplacementDocument(
+                currentDocument,
+                importedContent,
+                originalFilename,
+                documentOwner,
+                operationKeys.document());
         StoreDocumentFileResponse uploaded = uploadToStore(
-                generatedDocumentId,
-                file,
+                replacement.getId(),
+                uploadedBytes,
+                originalFilename,
                 uploadedFormat,
-                documentOwner);
-        GeneratedDocumentResponse document = fetchDocument(generatedDocumentId, documentOwner);
+                documentOwner,
+                operationKeys.docx());
         DocumentFileResponse pdf = saveFile(
-                generatedDocumentId,
+                replacement.getId(),
                 ExportFormat.PDF,
-                fileName(document, ExportFormat.PDF),
+                fileName(replacement, ExportFormat.PDF),
                 PDF_MIME_TYPE,
-                pdfExportService.export(document),
+                pdfExportService.export(replacement),
+                operationKeys.pdf(),
                 documentOwner);
+        activateReplacement(replacement, documentKind, documentOwner);
         List<DocumentExportItem> regeneratedFiles = List.of(toExportItem(pdf));
-        String message = "Document replaced successfully. PDF version has been updated.";
+        String message = "Edited document saved as a new active version with a matching PDF.";
 
-        LatestDocumentFiles latestFiles = latestFiles(generatedDocumentId, documentOwner);
+        LatestDocumentFiles latestFiles = latestFiles(replacement.getId(), documentOwner);
         log.info("Document export replacement upload completed generatedDocumentId={} uploadedFormat={} durationMs={}",
-                generatedDocumentId,
+                replacement.getId(),
                 uploadedFormat,
                 (System.nanoTime() - startedAt) / 1_000_000);
         return DocumentUploadResponse.builder()
-                .generatedDocumentId(generatedDocumentId)
+                .generatedDocumentId(replacement.getId())
                 .uploadedFile(toExportItem(uploaded))
                 .regeneratedFiles(regeneratedFiles)
                 .latestFiles(latestFiles)
@@ -148,7 +183,7 @@ public class DocumentExportService {
         log.info("Calling document-store-service get generated document documentId={}", documentId);
         try {
             GeneratedDocumentResponse document =
-                    generatedDocumentsApi.getDocumentById(documentId, documentOwner);
+                    readerGeneratedDocumentsApi.getDocumentById(documentId, documentOwner);
             if (document == null || document.getId() == null) {
                 throw new DownstreamServiceException("Document store returned no generated document", null);
             }
@@ -186,7 +221,7 @@ public class DocumentExportService {
         String fileName = fileName(document, format);
 
         DocumentFileResponse savedFile =
-                saveFile(document.getId(), format, fileName, mimeType, bytes, documentOwner);
+                saveFile(document.getId(), format, fileName, mimeType, bytes, null, documentOwner);
         if (savedFile == null || savedFile.getId() == null) {
             throw new DownstreamServiceException("Document store returned no exported file ID", null);
         }
@@ -200,22 +235,84 @@ public class DocumentExportService {
                 .build();
     }
 
+    private GeneratedDocumentResponse createReplacementDocument(
+            GeneratedDocumentResponse currentDocument,
+            String importedContent,
+            String originalFilename,
+            String documentOwner,
+            String operationKey) {
+        CreateDocumentRequest request = new CreateDocumentRequest()
+                .userId(documentOwner)
+                .jobId(currentDocument.getJobId())
+                .applicationId(currentDocument.getApplicationId())
+                .documentType(CreateDocumentRequest.DocumentTypeEnum.fromValue(
+                        currentDocument.getDocumentType().getValue()))
+                .title(currentDocument.getTitle())
+                .content(importedContent)
+                .active(false)
+                .originalFilename(safeOriginalFilename(originalFilename))
+                .sourceType(CreateDocumentRequest.SourceTypeEnum.UPLOADED)
+                .createdBy(documentOwner);
+        try {
+            GeneratedDocumentResponse replacement =
+                    producerGeneratedDocumentsApi.createDocument(
+                            request,
+                            operationKey,
+                            documentOwner);
+            if (replacement == null || replacement.getId() == null) {
+                throw new DownstreamServiceException(
+                        "Document store returned no replacement document ID",
+                        null);
+            }
+            return replacement;
+        } catch (RestClientException exception) {
+            throw new DownstreamServiceException(
+                    "Document store failed to create the replacement document version",
+                    exception);
+        }
+    }
+
+    private void activateReplacement(
+            GeneratedDocumentResponse replacement,
+            DocumentKind documentKind,
+            String documentOwner) {
+        try {
+            GeneratedDocumentResponse activated =
+                    producerGeneratedDocumentsApi.activateDocumentVersion(
+                            replacement.getApplicationId(),
+                            documentKind.name(),
+                            replacement.getId(),
+                            documentOwner);
+            if (activated == null || activated.getId() == null || !Boolean.TRUE.equals(activated.getActive())) {
+                throw new DownstreamServiceException(
+                        "Document store did not activate the replacement document version",
+                        null);
+            }
+        } catch (RestClientException exception) {
+            throw new DownstreamServiceException(
+                    "Document store failed to activate the replacement document version",
+                    exception);
+        }
+    }
+
     private StoreDocumentFileResponse uploadToStore(
             UUID generatedDocumentId,
-            MultipartFile file,
+            byte[] bytes,
+            String originalFilename,
             ExportFormat uploadedFormat,
-            String documentOwner) {
+            String documentOwner,
+            String operationKey) {
         long startedAt = System.nanoTime();
         log.info("Calling document-store-service upload replacement generatedDocumentId={} format={} sizeBytes={}",
                 generatedDocumentId,
                 uploadedFormat,
-                file == null ? 0 : file.getSize());
+                bytes == null ? 0 : bytes.length);
         try {
             MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-            ByteArrayResource resource = new ByteArrayResource(file.getBytes()) {
+            ByteArrayResource resource = new ByteArrayResource(bytes) {
                 @Override
                 public String getFilename() {
-                    return file.getOriginalFilename();
+                    return originalFilename;
                 }
             };
             HttpHeaders fileHeaders = new HttpHeaders();
@@ -227,19 +324,23 @@ public class DocumentExportService {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.MULTIPART_FORM_DATA);
             headers.set(DOCUMENT_OWNER_HEADER, documentOwner);
+            headers.set(IDEMPOTENCY_HEADER, operationKey);
 
             StoreDocumentFileResponse response = restTemplate.postForObject(
                     documentStoreBaseUrl + "/api/v1/documents/{generatedDocumentId}/files/upload",
                     new HttpEntity<>(body, headers),
                     StoreDocumentFileResponse.class,
                     generatedDocumentId);
+            if (response == null || response.getId() == null) {
+                throw new DownstreamServiceException(
+                        "Document store returned no uploaded file ID",
+                        null);
+            }
             log.info("document-store-service upload replacement returned generatedDocumentId={} fileId={} durationMs={}",
                     generatedDocumentId,
                     response == null ? null : response.getId(),
                     (System.nanoTime() - startedAt) / 1_000_000);
             return response;
-        } catch (IOException exception) {
-            throw new IllegalArgumentException("Unable to read uploaded file");
         } catch (RestClientException exception) {
             log.warn("document-store-service upload replacement failed generatedDocumentId={} durationMs={} error={}",
                     generatedDocumentId,
@@ -248,6 +349,86 @@ public class DocumentExportService {
                     exception);
             throw new DownstreamServiceException("Document store failed to save uploaded " + uploadedFormat + " file", exception);
         }
+    }
+
+    private void validateReplacementTarget(
+            GeneratedDocumentResponse currentDocument,
+            DocumentKind documentKind) {
+        if (currentDocument.getDocumentType() == null
+                || !documentKind.name().equals(currentDocument.getDocumentType().getValue())) {
+            throw new IllegalArgumentException(
+                    "documentKind does not match the stored document type");
+        }
+        if (currentDocument.getApplicationId() == null
+                || currentDocument.getApplicationId().isBlank()) {
+            throw new IllegalArgumentException(
+                    "Document must be linked to an application before it can be replaced");
+        }
+        if (currentDocument.getJobId() == null || currentDocument.getJobId().isBlank()) {
+            throw new IllegalArgumentException(
+                    "Stored document is missing its job link");
+        }
+        if (currentDocument.getTitle() == null || currentDocument.getTitle().isBlank()) {
+            throw new IllegalArgumentException(
+                    "Stored document is missing its title");
+        }
+    }
+
+    private byte[] readUpload(MultipartFile file) {
+        try {
+            return file.getBytes();
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("Unable to read uploaded file");
+        }
+    }
+
+    private ReplacementOperationKeys operationKeys(
+            UUID generatedDocumentId,
+            String documentOwner,
+            String requestedOperationKey) {
+        String callerKey = requestedOperationKey;
+        if (callerKey == null || callerKey.isBlank()) {
+            callerKey = UUID.randomUUID().toString();
+        } else if (!SAFE_IDEMPOTENCY_KEY.matcher(callerKey).matches()) {
+            throw new IllegalArgumentException(
+                    "Idempotency-Key must be 1-128 URL-safe characters");
+        }
+
+        String digest = sha256(documentOwner + "\n" + generatedDocumentId + "\n" + callerKey);
+        String prefix = "export-replacement-" + digest;
+        return new ReplacementOperationKeys(
+                prefix + "-document",
+                prefix + "-docx",
+                prefix + "-pdf");
+    }
+
+    private String sha256(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(
+                    digest.digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable", exception);
+        }
+    }
+
+    private String safeOriginalFilename(String value) {
+        String filename = value == null
+                ? "edited-document.docx"
+                : Normalizer.normalize(value, Normalizer.Form.NFKC)
+                        .replace('\\', '/')
+                        .replaceAll("[\\p{Cc}\\p{Cf}]", "");
+        int separator = filename.lastIndexOf('/');
+        if (separator >= 0) {
+            filename = filename.substring(separator + 1);
+        }
+        filename = filename.replace(':', '-').strip();
+        if (filename.isBlank()) {
+            filename = "edited-document.docx";
+        }
+        return filename.length() <= 255
+                ? filename
+                : filename.substring(filename.length() - 255);
     }
 
     private LatestDocumentFiles latestFiles(UUID generatedDocumentId, String documentOwner) {
@@ -317,6 +498,7 @@ public class DocumentExportService {
             String fileName,
             String mimeType,
             byte[] bytes,
+            String operationKey,
             String documentOwner) {
         long startedAt = System.nanoTime();
         log.info("Calling document-store-service save exported file documentId={} format={} sizeBytes={}",
@@ -331,7 +513,10 @@ public class DocumentExportService {
                 .fileContentBase64(Base64.getEncoder().encodeToString(bytes));
         try {
             DocumentFileResponse response =
-                    producerDocumentFilesApi.createDocumentFile(request, documentOwner);
+                    producerDocumentFilesApi.createDocumentFile(
+                            request,
+                            operationKey,
+                            documentOwner);
             log.info("document-store-service save exported file returned documentId={} format={} fileId={} durationMs={}",
                     documentId,
                     format,
@@ -382,8 +567,13 @@ public class DocumentExportService {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Uploaded file is required");
         }
-        String originalName = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase(Locale.ROOT);
-        if (!originalName.endsWith("." + uploadedFormat.name().toLowerCase(Locale.ROOT))) {
+        String originalName = file.getOriginalFilename() == null
+                ? ""
+                : file.getOriginalFilename().toLowerCase(Locale.ROOT);
+        String expectedExtension =
+                "." + uploadedFormat.name().toLowerCase(Locale.ROOT);
+        if (!originalName.endsWith(expectedExtension)
+                || originalName.equals(expectedExtension)) {
             throw new IllegalArgumentException("Uploaded file extension does not match " + uploadedFormat);
         }
         String contentType = file.getContentType();
@@ -406,5 +596,8 @@ public class DocumentExportService {
             return "document";
         }
         return slug.length() > 40 ? slug.substring(0, 40).replaceAll("-$", "") : slug;
+    }
+
+    private record ReplacementOperationKeys(String document, String docx, String pdf) {
     }
 }

@@ -14,8 +14,8 @@ import org.springframework.web.client.RestTemplate;
 @Configuration
 public class DocumentStoreClientConfig {
 
-    @Bean
-    GeneratedDocumentsApi generatedDocumentsApi(
+    @Bean("documentStoreReaderDocumentsApi")
+    GeneratedDocumentsApi documentStoreReaderDocumentsApi(
             RestTemplateBuilder builder,
             DocumentExportCredentials credentials,
             @Value("${services.document-store-service.base-url:http://localhost:8089}") String baseUrl) {
@@ -23,6 +23,17 @@ public class DocumentStoreClientConfig {
                 builder,
                 baseUrl,
                 credentials.documentStoreReaderToken()));
+    }
+
+    @Bean("documentStoreProducerDocumentsApi")
+    GeneratedDocumentsApi documentStoreProducerDocumentsApi(
+            RestTemplateBuilder builder,
+            DocumentExportCredentials credentials,
+            @Value("${services.document-store-service.base-url:http://localhost:8089}") String baseUrl) {
+        return new GeneratedDocumentsApi(apiClient(
+                builder,
+                baseUrl,
+                credentials.documentStoreProducerToken()));
     }
 
     @Bean("documentStoreProducerFilesApi")

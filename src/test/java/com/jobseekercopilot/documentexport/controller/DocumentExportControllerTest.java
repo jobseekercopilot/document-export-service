@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobseekercopilot.documentexport.dto.DocumentExportItem;
 import com.jobseekercopilot.documentexport.dto.DocumentExportRequest;
 import com.jobseekercopilot.documentexport.dto.DocumentExportResponse;
+import com.jobseekercopilot.documentexport.dto.DocumentUploadResponse;
 import com.jobseekercopilot.documentexport.dto.ExportFormat;
 import com.jobseekercopilot.documentexport.security.DocumentExportCredentials;
 import com.jobseekercopilot.documentexport.security.DocumentExportIdentityFilter;
@@ -14,6 +15,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
@@ -24,6 +26,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -66,6 +69,46 @@ class DocumentExportControllerTest {
                 .andExpect(jsonPath("$.exports[0].fileId").value(fileId.toString()))
                 .andExpect(jsonPath("$.exports[0].downloadUrl").value("/api/v1/document-files/" + fileId + "/download"));
         verify(documentExportService).exportDocument(eq(documentId), any(), eq(OWNER));
+    }
+
+    @Test
+    void replacementForwardsTheStableRetryKey() throws Exception {
+        UUID currentId = UUID.randomUUID();
+        UUID replacementId = UUID.randomUUID();
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "edited.docx",
+                DocumentExportService.DOCX_MIME_TYPE,
+                "synthetic".getBytes());
+        when(documentExportService.uploadReplacement(
+                eq(currentId),
+                any(),
+                any(),
+                eq(ExportFormat.DOCX),
+                eq(OWNER),
+                eq("retry-key-123"))).thenReturn(DocumentUploadResponse.builder()
+                .generatedDocumentId(replacementId)
+                .build());
+
+        mockMvc.perform(multipart(
+                        "/api/v1/document-exports/documents/{documentId}/upload",
+                        currentId)
+                        .file(file)
+                        .param("documentKind", "CV")
+                        .param("uploadedFormat", "DOCX")
+                        .header(DocumentExportIdentityFilter.SERVICE_TOKEN_HEADER, GATEWAY_TOKEN)
+                        .header(DocumentExportIdentityFilter.OWNER_HEADER, OWNER)
+                        .header("Idempotency-Key", "retry-key-123"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.generatedDocumentId").value(replacementId.toString()));
+
+        verify(documentExportService).uploadReplacement(
+                eq(currentId),
+                any(),
+                any(),
+                eq(ExportFormat.DOCX),
+                eq(OWNER),
+                eq("retry-key-123"));
     }
 
     @Test

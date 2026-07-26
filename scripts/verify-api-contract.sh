@@ -19,7 +19,7 @@ done
 
 jq -e '
     (.openapi | type == "string" and startswith("3.")) and
-    (.info.version == "2.0.0") and
+    (.info.version == "2.1.0") and
     (.components.securitySchemes.serviceToken.type == "apiKey") and
     (.components.securitySchemes.serviceToken.in == "header") and
     (.components.securitySchemes.serviceToken.name == "X-Service-Token") and
@@ -46,7 +46,12 @@ jq -e '
     (.paths["/api/v1/document-exports/documents/{documentId}/upload"].post.parameters
         | any(.name == "uploadedFormat" and .in == "query" and .required == true)) and
     (.paths["/api/v1/document-exports/documents/{documentId}/upload"].post.parameters
+        | map(select(.name == "uploadedFormat"))[0].schema.enum
+        | index("DOCX") != null and index("PDF") != null) and
+    (.paths["/api/v1/document-exports/documents/{documentId}/upload"].post.parameters
         | any(.name == "X-Document-Owner" and .in == "header" and .required == true)) and
+    (.paths["/api/v1/document-exports/documents/{documentId}/upload"].post.parameters
+        | any(.name == "Idempotency-Key" and .in == "header" and .required != true)) and
     (.paths["/api/v1/document-exports/documents/{documentId}/upload"].post.security
         | any(has("serviceToken"))) and
     (.components.schemas.DocumentExportRequest.required | index("formats") != null) and

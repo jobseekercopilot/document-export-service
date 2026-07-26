@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -73,13 +74,24 @@ public class DocumentExportController {
     @PostMapping(value = "/documents/{documentId}/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(
             summary = "Upload user-edited document file",
-            description = "Stores an uploaded DOCX or PDF replacement and returns the latest available files",
-            parameters = @Parameter(
-                    name = DocumentExportIdentityFilter.OWNER_HEADER,
-                    in = ParameterIn.HEADER,
-                    description = "Owner context bound by the authenticated Gateway",
-                    required = true,
-                    schema = @Schema(type = "string")))
+            description = """
+                    Imports an edited DOCX as a new inactive document version, stores the DOCX
+                    and a PDF rendered from the same imported text, then activates the version.
+                    Reuse Idempotency-Key when retrying the same upload.
+                    """,
+            parameters = {
+                    @Parameter(
+                            name = DocumentExportIdentityFilter.OWNER_HEADER,
+                            in = ParameterIn.HEADER,
+                            description = "Owner context bound by the authenticated Gateway",
+                            required = true,
+                            schema = @Schema(type = "string")),
+                    @Parameter(
+                            name = "Idempotency-Key",
+                            in = ParameterIn.HEADER,
+                            description = "Stable retry key for this replacement operation",
+                            schema = @Schema(type = "string", maxLength = 128))
+            })
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "Upload saved successfully"),
             @ApiResponse(responseCode = "400", description = "Invalid upload request"),
@@ -93,7 +105,15 @@ public class DocumentExportController {
             @Parameter(description = "UUID of the generated document") @PathVariable UUID documentId,
             @RequestParam("file") MultipartFile file,
             @RequestParam("documentKind") DocumentKind documentKind,
+            @Parameter(
+                    description = """
+                            Private beta replacements accept DOCX only. PDF remains in the
+                            published client enum for wire compatibility and is rejected with 400.
+                            """,
+                    schema = @Schema(allowableValues = {"DOCX", "PDF"}))
             @RequestParam("uploadedFormat") ExportFormat uploadedFormat,
+            @Parameter(hidden = true)
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Parameter(hidden = true)
             @RequestAttribute(DocumentExportIdentityFilter.OWNER_ATTRIBUTE) String documentOwner) {
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -102,6 +122,7 @@ public class DocumentExportController {
                         file,
                         documentKind,
                         uploadedFormat,
-                        documentOwner));
+                        documentOwner,
+                        idempotencyKey));
     }
 }

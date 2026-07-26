@@ -20,13 +20,13 @@ done
 
 test "$(wc -l < "$source_metadata" | tr -d ' ')" = 4
 grep -Fx 'repository=jobseekercopilot/document-store-service' "$source_metadata" >/dev/null
-grep -Fx 'revision=b696fe81e9b900e0749e185f595ff4c98c24119d' "$source_metadata" >/dev/null
+grep -Fx 'revision=b4d836f04e09c62b88b1d23580fe1f939aa519a9' "$source_metadata" >/dev/null
 grep -Fx 'path=contracts/openapi.json' "$source_metadata" >/dev/null
-grep -Fx 'sha256=3d0595c83cc66d9037e08af6a4b087c115c9a5d99ec71491f1aa5fc3afffd6ba' "$source_metadata" >/dev/null
+grep -Fx 'sha256=393eeb9d6701f01c4f83c394f96369113fe36f00ca5273ea1e6a261e060b0a2c' "$source_metadata" >/dev/null
 
 jq -e '
     (.openapi | type == "string" and startswith("3.")) and
-    (.info.version == "1.1.0") and
+    (.info.version == "1.4.0") and
     (.components.securitySchemes.serviceToken.type == "apiKey") and
     (.components.securitySchemes.serviceToken.in == "header") and
     (.components.securitySchemes.serviceToken.name == "X-Service-Token") and
@@ -35,7 +35,13 @@ jq -e '
         | any(.name == "X-Document-Owner" and .in == "header")) and
     (.paths["/api/v1/documents/{id}"].get.security
         | any(has("serviceToken"))) and
+    (.paths["/api/v1/documents"].post.parameters
+        | any(.name == "Idempotency-Key" and .in == "header")) and
+    (.paths["/api/v1/documents/applications/{applicationId}/{documentType}/active/{documentId}"]
+        .patch.operationId == "activateDocumentVersion") and
     (.paths["/api/v1/document-files"].post.operationId == "createDocumentFile") and
+    (.paths["/api/v1/document-files"].post.parameters
+        | any(.name == "Idempotency-Key" and .in == "header")) and
     (.paths["/api/v1/document-files"].post.parameters
         | any(.name == "X-Document-Owner" and .in == "header")) and
     (.paths["/api/v1/document-files"].post.security
@@ -43,11 +49,17 @@ jq -e '
     (.paths["/api/v1/documents/{generatedDocumentId}/files/upload"].post.operationId == "uploadReplacementFile") and
     (.paths["/api/v1/documents/{generatedDocumentId}/files/upload"].post.parameters
         | any(.name == "X-Document-Owner" and .in == "header")) and
+    (.paths["/api/v1/documents/{generatedDocumentId}/files/upload"].post.parameters
+        | any(.name == "Idempotency-Key" and .in == "header")) and
     (.paths["/api/v1/documents/{generatedDocumentId}/files/latest"].get.operationId == "getLatestFilesForDocument") and
     (.paths["/api/v1/documents/{generatedDocumentId}/files/latest"].get.parameters
         | any(.name == "X-Document-Owner" and .in == "header")) and
     (.components.schemas.GeneratedDocumentResponse.properties
-        | has("id") and has("title") and has("content") and has("documentType")) and
+        | has("id") and has("applicationId") and has("title") and has("content") and
+          has("documentType") and has("version") and has("active")) and
+    (.components.schemas.CreateDocumentRequest.properties
+        | has("applicationId") and has("sourceType") and has("active") and
+          has("originalFilename") and has("createdBy")) and
     (.components.schemas.CreateDocumentFileRequest.required
         | index("generatedDocumentId") != null and
           index("fileType") != null and
