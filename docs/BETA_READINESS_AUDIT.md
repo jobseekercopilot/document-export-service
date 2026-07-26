@@ -48,7 +48,7 @@ failure.
 
 ## Confirmed blockers
 
-1. Gateway and Infrastructure must adopt the implemented Document Export 2.0.0
+1. Gateway and Infrastructure must adopt the implemented Document Export 2.1.0
    service-identity and owner-context contract before ownership is enforced in
    the deployed end-to-end path.
 2. Gateway and client consumers must adopt the version-return and

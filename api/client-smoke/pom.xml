@@ -17,7 +17,7 @@
         <dependency>
             <groupId>com.jobseekercopilot.clients</groupId>
             <artifactId>document-export-service-client</artifactId>
-            <version>2.0.0-rev.a35fff34f86b</version>
+            <version>2.1.0-rev.bd9dc77f11f4</version>
         </dependency>
     </dependencies>
 
