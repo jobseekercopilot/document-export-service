@@ -46,7 +46,7 @@ Compose defaults, image layers, workflow logs or shell history.
 
 ## Remaining dependencies
 
-- Document Generation Gateway must consume the Document Export 2.1.0 contract,
+- Document Generation Gateway must consume the Document Export 3.0.0 contract,
   send its dedicated credential and derive exactly one owner from the
   validated platform token subject.
 - Infrastructure must inject and rotate all credentials without defaults.

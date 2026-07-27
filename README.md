@@ -34,6 +34,11 @@ uploads. Document Export derives stable DOCX and PDF Store keys and reuses an
 already-written PDF on replay, so a lost response cannot create duplicate file
 versions. Calls without the header retain the existing behavior.
 
+Version `3.0.0` makes `Idempotency-Key` mandatory for ordinary exports.
+Document Export derives a stable key for each requested format and uses
+Document Store `2.2.0` replay semantics, so a timeout after one file is stored
+can resume without creating duplicate file versions.
+
 The Document Store client is generated during Maven `generate-sources` from the
 reviewed, checksum-protected producer contract under `src/main/openapi`.
 Generated sources and binaries are build outputs and are not committed. See

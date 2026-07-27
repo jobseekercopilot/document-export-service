@@ -25,6 +25,7 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -47,7 +48,12 @@ class DocumentExportControllerTest {
     void exportDocumentReturnsCreated() throws Exception {
         UUID documentId = UUID.randomUUID();
         UUID fileId = UUID.randomUUID();
-        when(documentExportService.exportDocument(eq(documentId), any(), eq(OWNER)))
+        String operationKey = "generation-operation";
+        when(documentExportService.exportDocument(
+                eq(documentId),
+                any(),
+                eq(OWNER),
+                eq(operationKey)))
                 .thenReturn(DocumentExportResponse.builder()
                 .documentId(documentId)
                 .exports(List.of(DocumentExportItem.builder()
@@ -62,13 +68,42 @@ class DocumentExportControllerTest {
         mockMvc.perform(post("/api/v1/document-exports/documents/{documentId}", documentId)
                         .header(DocumentExportIdentityFilter.SERVICE_TOKEN_HEADER, GATEWAY_TOKEN)
                         .header(DocumentExportIdentityFilter.OWNER_HEADER, OWNER)
+                        .header("Idempotency-Key", operationKey)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new DocumentExportRequest(List.of(ExportFormat.DOCX)))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.documentId").value(documentId.toString()))
                 .andExpect(jsonPath("$.exports[0].fileId").value(fileId.toString()))
                 .andExpect(jsonPath("$.exports[0].downloadUrl").value("/api/v1/document-files/" + fileId + "/download"));
-        verify(documentExportService).exportDocument(eq(documentId), any(), eq(OWNER));
+        verify(documentExportService).exportDocument(
+                eq(documentId),
+                any(),
+                eq(OWNER),
+                eq(operationKey));
+    }
+
+    @Test
+    void missingOrdinaryExportIdempotencyKeyFailsBeforeServiceCall()
+            throws Exception {
+        UUID documentId = UUID.randomUUID();
+
+        mockMvc.perform(post(
+                        "/api/v1/document-exports/documents/{documentId}",
+                        documentId)
+                        .header(
+                                DocumentExportIdentityFilter
+                                        .SERVICE_TOKEN_HEADER,
+                                GATEWAY_TOKEN)
+                        .header(
+                                DocumentExportIdentityFilter.OWNER_HEADER,
+                                OWNER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new DocumentExportRequest(
+                                        List.of(ExportFormat.DOCX)))))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(documentExportService);
     }
 
     @Test

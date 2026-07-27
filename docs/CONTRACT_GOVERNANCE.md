@@ -10,10 +10,10 @@ Export. Document Export builds that client from reviewed source during Maven
 | Property | Value |
 | --- | --- |
 | Producer | `jobseekercopilot/document-store-service` |
-| Producer revision | `b696fe81e9b900e0749e185f595ff4c98c24119d` |
+| Producer revision | `4180596ba5b23998ae6f001c4e624fbc395b4ce4` |
 | Producer path | `contracts/openapi.json` |
-| Contract version | `1.1.0` |
-| SHA-256 | `3d0595c83cc66d9037e08af6a4b087c115c9a5d99ec71491f1aa5fc3afffd6ba` |
+| Contract version | `2.2.0` |
+| SHA-256 | `d510b39c9629b6ea7663fa76baa6e3b14798b87315b44a65e76a8a8defab8715` |
 | Generator | OpenAPI Generator `7.5.0`, Java `resttemplate` library |
 
 `src/main/openapi/document-store-service.SOURCE` records the source revision
@@ -33,6 +33,7 @@ Document Export currently requires:
   metadata;
 - required base64 file content on exported-file writes.
 - service-token authentication and `X-Document-Owner` on every read and write.
+- owner-scoped `Idempotency-Key` replay of identical exported-file writes.
 
 `scripts/verify-contracts.sh` checks provenance, checksum and this semantic
 boundary. `scripts/test-contract-policy.sh` proves that missing, drifted or

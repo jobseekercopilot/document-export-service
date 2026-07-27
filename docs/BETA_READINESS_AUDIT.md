@@ -57,7 +57,7 @@ separate DOCX-to-PDF fidelity gap.
 
 ## Confirmed blockers
 
-1. Gateway and Infrastructure must adopt the implemented Document Export 2.1.0
+1. Gateway and Infrastructure must adopt the implemented Document Export 3.0.0
    service-identity and owner-context contract before ownership is enforced in
    the deployed end-to-end path.
 2. The replacement flow stores uploaded DOCX bytes but regenerates PDF from

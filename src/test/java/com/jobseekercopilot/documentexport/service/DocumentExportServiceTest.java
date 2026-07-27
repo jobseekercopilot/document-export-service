@@ -9,7 +9,6 @@ import com.jobseekercopilot.documentexport.dto.StoreDocumentFileResponse;
 import com.jobseekercopilot.documentexport.exception.DownstreamServiceException;
 import com.jobseekercopilot.generated.documentstoreservice.api.DocumentFilesApi;
 import com.jobseekercopilot.generated.documentstoreservice.api.GeneratedDocumentsApi;
-import com.jobseekercopilot.generated.documentstoreservice.model.CreateDocumentFileRequest;
 import com.jobseekercopilot.generated.documentstoreservice.model.DocumentFileResponse;
 import com.jobseekercopilot.generated.documentstoreservice.model.GeneratedDocumentResponse;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,11 +25,10 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -81,13 +79,20 @@ class DocumentExportServiceTest {
         UUID docxId = UUID.randomUUID();
         UUID pdfId = UUID.randomUUID();
         when(generatedDocumentsApi.getDocumentById(documentId, OWNER)).thenReturn(document(documentId));
-        when(producerDocumentFilesApi.createDocumentFile(any(), eq(OWNER))).thenReturn(
-                new DocumentFileResponse().id(docxId),
-                new DocumentFileResponse().id(pdfId));
+        when(restTemplate.exchange(
+                anyString(),
+                eq(HttpMethod.POST),
+                any(HttpEntity.class),
+                eq(DocumentFileResponse.class))).thenReturn(
+                        org.springframework.http.ResponseEntity.ok(
+                                new DocumentFileResponse().id(docxId)),
+                        org.springframework.http.ResponseEntity.ok(
+                                new DocumentFileResponse().id(pdfId)));
 
         DocumentExportResponse response = service.exportDocument(documentId,
                 new DocumentExportRequest(List.of(ExportFormat.DOCX, ExportFormat.PDF)),
-                OWNER);
+                OWNER,
+                "generation-operation");
 
         assertEquals(documentId, response.getDocumentId());
         assertEquals(2, response.getExports().size());
@@ -97,19 +102,31 @@ class DocumentExportServiceTest {
         assertEquals(pdfId, response.getExports().get(1).getFileId());
         assertEquals("application/pdf", response.getExports().get(1).getMimeType());
 
-        ArgumentCaptor<CreateDocumentFileRequest> captor = ArgumentCaptor.forClass(CreateDocumentFileRequest.class);
-        verify(producerDocumentFilesApi, org.mockito.Mockito.times(2))
-                .createDocumentFile(captor.capture(), eq(OWNER));
+        ArgumentCaptor<HttpEntity> captor =
+                ArgumentCaptor.forClass(HttpEntity.class);
+        verify(restTemplate, times(2)).exchange(
+                anyString(),
+                eq(HttpMethod.POST),
+                captor.capture(),
+                eq(DocumentFileResponse.class));
         verify(generatedDocumentsApi).getDocumentById(documentId, OWNER);
-        assertEquals(CreateDocumentFileRequest.FileTypeEnum.DOCX, captor.getAllValues().get(0).getFileType());
-        assertEquals(CreateDocumentFileRequest.FileTypeEnum.PDF, captor.getAllValues().get(1).getFileType());
-        assertEquals(DocumentExportService.DOCX_MIME_TYPE, captor.getAllValues().get(0).getMimeType());
-        assertEquals(DocumentExportService.PDF_MIME_TYPE, captor.getAllValues().get(1).getMimeType());
-
-        byte[] docxBytes = Base64.getDecoder().decode(captor.getAllValues().get(0).getFileContentBase64());
-        byte[] pdfBytes = Base64.getDecoder().decode(captor.getAllValues().get(1).getFileContentBase64());
-        assertTrue(docxBytes.length > 0);
-        assertArrayEquals("%PDF".getBytes(), java.util.Arrays.copyOf(pdfBytes, 4));
+        assertEquals(
+                "generation-operation:docx",
+                captor.getAllValues().get(0).getHeaders()
+                        .getFirst("Idempotency-Key"));
+        assertEquals(
+                "generation-operation:pdf",
+                captor.getAllValues().get(1).getHeaders()
+                        .getFirst("Idempotency-Key"));
+        assertEquals(
+                OWNER,
+                captor.getAllValues().get(0).getHeaders()
+                        .getFirst("X-Document-Owner"));
+        assertTrue(((String) ((Map<?, ?>) captor.getAllValues()
+                        .get(0).getBody()).get("fileContentBase64"))
+                .length() > 0);
+        verify(producerDocumentFilesApi, never())
+                .createDocumentFile(any(), any(), anyString());
     }
 
     @Test
@@ -122,21 +139,103 @@ class DocumentExportServiceTest {
                 () -> service.exportDocument(
                         documentId,
                         new DocumentExportRequest(List.of(ExportFormat.DOCX)),
-                        OWNER));
+                        OWNER,
+                        "fetch-failure"));
     }
 
     @Test
     void handlesDocumentFileSaveFailure() {
         UUID documentId = UUID.randomUUID();
         when(generatedDocumentsApi.getDocumentById(documentId, OWNER)).thenReturn(document(documentId));
-        when(producerDocumentFilesApi.createDocumentFile(any(), eq(OWNER)))
+        when(restTemplate.exchange(
+                anyString(),
+                eq(HttpMethod.POST),
+                any(HttpEntity.class),
+                eq(DocumentFileResponse.class)))
                 .thenThrow(new RestClientException("down"));
 
         assertThrows(DownstreamServiceException.class,
                 () -> service.exportDocument(
                         documentId,
                         new DocumentExportRequest(List.of(ExportFormat.PDF)),
-                        OWNER));
+                        OWNER,
+                        "save-failure"));
+    }
+
+    @Test
+    void rejectsMalformedIdempotencyKeyBeforeReadRenderOrWrite() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.exportDocument(
+                        UUID.randomUUID(),
+                        new DocumentExportRequest(List.of(ExportFormat.DOCX)),
+                        OWNER,
+                        "unsafe key"));
+
+        verify(generatedDocumentsApi, never())
+                .getDocumentById(any(), anyString());
+        verify(restTemplate, never()).exchange(
+                anyString(),
+                eq(HttpMethod.POST),
+                any(HttpEntity.class),
+                eq(DocumentFileResponse.class));
+    }
+
+    @Test
+    void resumesAfterOneFormatFailureWithTheSameStoreKeys() {
+        UUID documentId = UUID.randomUUID();
+        UUID docxId = UUID.randomUUID();
+        UUID pdfId = UUID.randomUUID();
+        when(generatedDocumentsApi.getDocumentById(documentId, OWNER))
+                .thenReturn(document(documentId));
+        when(restTemplate.exchange(
+                anyString(),
+                eq(HttpMethod.POST),
+                any(HttpEntity.class),
+                eq(DocumentFileResponse.class)))
+                .thenReturn(org.springframework.http.ResponseEntity.ok(
+                        new DocumentFileResponse().id(docxId)))
+                .thenThrow(new RestClientException("timeout after PDF write"))
+                .thenReturn(
+                        org.springframework.http.ResponseEntity.ok(
+                                new DocumentFileResponse().id(docxId)),
+                        org.springframework.http.ResponseEntity.ok(
+                                new DocumentFileResponse().id(pdfId)));
+        DocumentExportRequest request = new DocumentExportRequest(
+                List.of(ExportFormat.DOCX, ExportFormat.PDF));
+
+        assertThrows(
+                DownstreamServiceException.class,
+                () -> service.exportDocument(
+                        documentId,
+                        request,
+                        OWNER,
+                        "resume-operation"));
+        DocumentExportResponse replay = service.exportDocument(
+                documentId,
+                request,
+                OWNER,
+                "resume-operation");
+
+        assertEquals(docxId, replay.getExports().get(0).getFileId());
+        assertEquals(pdfId, replay.getExports().get(1).getFileId());
+        ArgumentCaptor<HttpEntity> calls =
+                ArgumentCaptor.forClass(HttpEntity.class);
+        verify(restTemplate, times(4)).exchange(
+                anyString(),
+                eq(HttpMethod.POST),
+                calls.capture(),
+                eq(DocumentFileResponse.class));
+        assertEquals(
+                List.of(
+                        "resume-operation:docx",
+                        "resume-operation:pdf",
+                        "resume-operation:docx",
+                        "resume-operation:pdf"),
+                calls.getAllValues().stream()
+                        .map(entity -> entity.getHeaders()
+                                .getFirst("Idempotency-Key"))
+                        .toList());
     }
 
     @Test
@@ -163,7 +262,8 @@ class DocumentExportServiceTest {
                 any(HttpEntity.class),
                 eq(StoreDocumentFileResponse.class),
                 eq(documentId))).thenReturn(uploaded);
-        when(producerDocumentFilesApi.createDocumentFile(any(), eq(OWNER)))
+        when(producerDocumentFilesApi.createDocumentFile(
+                any(), any(), eq(OWNER)))
                 .thenReturn(new DocumentFileResponse()
                         .id(generatedPdfId)
                         .fileType(DocumentFileResponse.FileTypeEnum.PDF)
@@ -199,7 +299,8 @@ class DocumentExportServiceTest {
         assertEquals(1, entity.getValue().getHeaders().get("X-Document-Owner").size());
         verify(generatedDocumentsApi, org.mockito.Mockito.times(2))
                 .getDocumentById(documentId, OWNER);
-        verify(producerDocumentFilesApi).createDocumentFile(any(), eq(OWNER));
+        verify(producerDocumentFilesApi).createDocumentFile(
+                any(), any(), eq(OWNER));
         verify(readerDocumentFilesApi).getLatestFilesForDocument(documentId, OWNER);
         verify(docxUploadInspector).inspect(file);
     }
@@ -269,7 +370,7 @@ class DocumentExportServiceTest {
         verify(readerDocumentFilesApi, times(2))
                 .getLatestFilesForDocument(documentId, OWNER);
         verify(producerDocumentFilesApi, never())
-                .createDocumentFile(any(), anyString());
+                .createDocumentFile(any(), any(), anyString());
         verify(restTemplate, never()).exchange(
                 anyString(),
                 eq(HttpMethod.POST),

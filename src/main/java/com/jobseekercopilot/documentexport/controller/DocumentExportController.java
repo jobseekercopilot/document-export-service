@@ -66,9 +66,17 @@ public class DocumentExportController {
             @Parameter(description = "UUID of the generated document") @PathVariable UUID documentId,
             @Parameter(hidden = true)
             @RequestAttribute(DocumentExportIdentityFilter.OWNER_ATTRIBUTE) String documentOwner,
+            @Parameter(
+                    description = "Stable operation key for replay-safe per-format Store writes",
+                    required = true)
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody DocumentExportRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(documentExportService.exportDocument(documentId, request, documentOwner));
+                .body(documentExportService.exportDocument(
+                        documentId,
+                        request,
+                        documentOwner,
+                        idempotencyKey));
     }
 
     @PostMapping(value = "/documents/{documentId}/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

@@ -39,12 +39,15 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Service
 public class DocumentExportService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentExportService.class);
     private static final String DOCUMENT_OWNER_HEADER = "X-Document-Owner";
+    private static final Pattern IDEMPOTENCY_KEY =
+            Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,119}");
 
     public static final String DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     public static final String PDF_MIME_TYPE = "application/pdf";
@@ -82,7 +85,9 @@ public class DocumentExportService {
     public DocumentExportResponse exportDocument(
             UUID documentId,
             DocumentExportRequest request,
-            String documentOwner) {
+            String documentOwner,
+            String idempotencyKey) {
+        String operationKey = validatedIdempotencyKey(idempotencyKey);
         long startedAt = System.nanoTime();
         log.info("Document export started documentId={} formats={}",
                 documentId,
@@ -91,7 +96,11 @@ public class DocumentExportService {
         List<DocumentExportItem> exports = new ArrayList<>();
 
         for (ExportFormat format : new LinkedHashSet<>(request.getFormats())) {
-            exports.add(exportAndSave(document, format, documentOwner));
+            exports.add(exportAndSave(
+                    document,
+                    format,
+                    documentOwner,
+                    operationKey(operationKey, format.name().toLowerCase(Locale.ROOT))));
         }
 
         log.info("Document export completed documentId={} exportCount={} durationMs={}",
@@ -203,7 +212,8 @@ public class DocumentExportService {
     private DocumentExportItem exportAndSave(
             GeneratedDocumentResponse document,
             ExportFormat format,
-            String documentOwner) {
+            String documentOwner,
+            String idempotencyKey) {
         long startedAt = System.nanoTime();
         log.info("Document render started documentId={} format={}", document.getId(), format);
         byte[] bytes = switch (format) {
@@ -219,7 +229,14 @@ public class DocumentExportService {
         String fileName = fileName(document, format);
 
         DocumentFileResponse savedFile =
-                saveFile(document.getId(), format, fileName, mimeType, bytes, documentOwner);
+                saveFile(
+                        document.getId(),
+                        format,
+                        fileName,
+                        mimeType,
+                        bytes,
+                        documentOwner,
+                        idempotencyKey);
         if (savedFile == null || savedFile.getId() == null) {
             throw new DownstreamServiceException("Document store returned no exported file ID", null);
         }
@@ -414,7 +431,7 @@ public class DocumentExportService {
                 response = storeResponse.getBody();
             } else {
                 response = producerDocumentFilesApi.createDocumentFile(
-                        request, documentOwner);
+                        request, null, documentOwner);
             }
             log.info("document-store-service save exported file returned documentId={} format={} fileId={} durationMs={}",
                     documentId,
@@ -449,6 +466,15 @@ public class DocumentExportService {
 
     private String operationKey(String base, String step) {
         return hasText(base) ? base.trim() + ":" + step : null;
+    }
+
+    private String validatedIdempotencyKey(String value) {
+        String normalized = value == null ? "" : value.trim();
+        if (!IDEMPOTENCY_KEY.matcher(normalized).matches()) {
+            throw new IllegalArgumentException(
+                    "Idempotency-Key must contain 1 to 120 safe characters.");
+        }
+        return normalized;
     }
 
     private boolean hasText(String value) {

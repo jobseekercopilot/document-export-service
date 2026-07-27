@@ -2,16 +2,16 @@
   "schemaVersion": 1,
   "contract": {
     "path": "contracts/openapi.json",
-    "version": "2.1.0",
-    "sourceRevision": "9a26dd3239fc53e2cad434f8e18ea6b93802ab03",
-    "sha256": "39ab107067af69bf082114eef5552eabe7eb08bf73217caeb9335f869a489b6a",
+    "version": "3.0.0",
+    "sourceRevision": "2d6edd832027307bd5cf1777cfbedbcd322bc1e7",
+    "sha256": "17d37926cc6c9dedacb526e018577cb3c1aaf976fdcda24a588d541f9ec4f042",
     "initialRelease": false,
-    "compatibilityBaseRevision": "aa7f34693d81e55686c90441b105a195b614a545"
+    "compatibilityBaseRevision": "9a26dd3239fc53e2cad434f8e18ea6b93802ab03"
   },
   "javaPackage": {
     "groupId": "com.jobseekercopilot.clients",
     "artifactId": "document-export-service-client",
-    "version": "2.1.0-rev.9a26dd3239fc",
+    "version": "3.0.0-rev.2d6edd832027",
     "registry": "https://maven.pkg.github.com/jobseekercopilot/document-export-service"
   },
   "generator": {

@@ -14,11 +14,12 @@ public class OpenApiConfig {
     OpenAPI documentExportOpenApi() {
         return new OpenAPI().info(new Info()
                 .title("Jobseeker Copilot - Document Export API")
-                .version("2.1.0")
+                .version("3.0.0")
                 .description("""
                         Exports generated document content into DOCX and PDF files and saves them
                         to document-store-service. Every export operation requires the approved
-                        Gateway service identity and its trusted document-owner context.
+                        Gateway service identity, its trusted document-owner context and a stable
+                        operation key so ordinary exports can be replayed without duplicate files.
                         """))
                 .components(new Components().addSecuritySchemes(
                         "serviceToken",
