@@ -3,7 +3,7 @@ set -euo pipefail
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 module="$repository_root/api/client"
-client_version="2.1.0-rev.9a26dd3239fc"
+client_version="3.0.0-rev.2d6edd832027"
 temporary_dir="$(mktemp -d)"
 trap 'rm -rf "$temporary_dir"' EXIT
 
