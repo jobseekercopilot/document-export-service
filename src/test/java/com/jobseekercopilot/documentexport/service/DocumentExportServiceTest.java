@@ -21,6 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -37,6 +38,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -199,6 +202,79 @@ class DocumentExportServiceTest {
         verify(producerDocumentFilesApi).createDocumentFile(any(), eq(OWNER));
         verify(readerDocumentFilesApi).getLatestFilesForDocument(documentId, OWNER);
         verify(docxUploadInspector).inspect(file);
+    }
+
+    @Test
+    void replacementOperationPropagatesRetryKeysAndReusesExistingPdf() {
+        UUID documentId = UUID.randomUUID();
+        UUID uploadedId = UUID.randomUUID();
+        UUID existingPdfId = UUID.randomUUID();
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "edited.docx",
+                DocumentExportService.DOCX_MIME_TYPE,
+                "stable docx bytes".getBytes());
+        StoreDocumentFileResponse uploaded =
+                new StoreDocumentFileResponse();
+        uploaded.setId(uploadedId);
+        uploaded.setGeneratedDocumentId(documentId);
+        uploaded.setFileType(ExportFormat.DOCX);
+        uploaded.setFileName("edited.docx");
+        uploaded.setMimeType(DocumentExportService.DOCX_MIME_TYPE);
+        List<DocumentFileResponse> currentFiles = List.of(
+                new DocumentFileResponse()
+                        .id(uploadedId)
+                        .fileType(DocumentFileResponse.FileTypeEnum.DOCX)
+                        .fileName("edited.docx")
+                        .mimeType(DocumentExportService.DOCX_MIME_TYPE),
+                new DocumentFileResponse()
+                        .id(existingPdfId)
+                        .fileType(DocumentFileResponse.FileTypeEnum.PDF)
+                        .fileName("tailored-cv.pdf")
+                        .mimeType(MediaType.APPLICATION_PDF_VALUE));
+
+        when(generatedDocumentsApi.getDocumentById(documentId, OWNER))
+                .thenReturn(document(documentId));
+        when(restTemplate.postForObject(
+                anyString(),
+                any(HttpEntity.class),
+                eq(StoreDocumentFileResponse.class),
+                eq(documentId))).thenReturn(uploaded);
+        when(readerDocumentFilesApi.getLatestFilesForDocument(
+                documentId, OWNER))
+                .thenReturn(currentFiles);
+
+        var response = service.uploadReplacement(
+                documentId,
+                file,
+                DocumentKind.CV,
+                ExportFormat.DOCX,
+                OWNER,
+                "replacement-operation");
+
+        assertEquals(
+                existingPdfId,
+                response.getRegeneratedFiles().get(0).getFileId());
+        ArgumentCaptor<HttpEntity> upload =
+                ArgumentCaptor.forClass(HttpEntity.class);
+        verify(restTemplate).postForObject(
+                anyString(),
+                upload.capture(),
+                eq(StoreDocumentFileResponse.class),
+                eq(documentId));
+        assertEquals(
+                "replacement-operation:docx",
+                upload.getValue().getHeaders()
+                        .getFirst("Idempotency-Key"));
+        verify(readerDocumentFilesApi, times(2))
+                .getLatestFilesForDocument(documentId, OWNER);
+        verify(producerDocumentFilesApi, never())
+                .createDocumentFile(any(), anyString());
+        verify(restTemplate, never()).exchange(
+                anyString(),
+                eq(HttpMethod.POST),
+                any(HttpEntity.class),
+                eq(DocumentFileResponse.class));
     }
 
     private GeneratedDocumentResponse document(UUID documentId) {

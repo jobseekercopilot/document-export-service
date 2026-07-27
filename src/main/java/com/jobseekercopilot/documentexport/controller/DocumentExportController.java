@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -94,6 +95,9 @@ public class DocumentExportController {
             @RequestParam("file") MultipartFile file,
             @RequestParam("documentKind") DocumentKind documentKind,
             @RequestParam("uploadedFormat") ExportFormat uploadedFormat,
+            @Parameter(description = "Stable Tracker workflow key for replay-safe Store file writes")
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            String idempotencyKey,
             @Parameter(hidden = true)
             @RequestAttribute(DocumentExportIdentityFilter.OWNER_ATTRIBUTE) String documentOwner) {
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -102,6 +106,7 @@ public class DocumentExportController {
                         file,
                         documentKind,
                         uploadedFormat,
-                        documentOwner));
+                        documentOwner,
+                        idempotencyKey));
     }
 }

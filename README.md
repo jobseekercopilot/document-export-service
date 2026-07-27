@@ -29,6 +29,11 @@ are recorded in [`api/client-release.json`](api/client-release.json). Generated
 client source and packages are disposable build output and are never committed.
 See [`api/README.md`](api/README.md) for the release and compatibility policy.
 
+Version `2.1.0` adds an optional Tracker workflow idempotency key to replacement
+uploads. Document Export derives stable DOCX and PDF Store keys and reuses an
+already-written PDF on replay, so a lost response cannot create duplicate file
+versions. Calls without the header retain the existing behavior.
+
 The Document Store client is generated during Maven `generate-sources` from the
 reviewed, checksum-protected producer contract under `src/main/openapi`.
 Generated sources and binaries are build outputs and are not committed. See

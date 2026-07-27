@@ -31,6 +31,10 @@ Store. Rendering is in memory; no service-owned temporary files were found.
 The upload endpoint accepts a replacement DOCX and then advertises an updated
 PDF. In the current implementation that PDF is rendered from the unchanged
 stored text, not from the uploaded DOCX, so user edits are not represented.
+APP-08 now gives this path a stable Tracker operation key. Export derives
+independent replay-safe DOCX and PDF Store keys and reuses a previously written
+PDF after a lost response. This closes duplicate-write recovery, not the
+separate DOCX-to-PDF fidelity gap.
 
 ## Migration evidence
 
@@ -53,18 +57,20 @@ stored text, not from the uploaded DOCX, so user edits are not represented.
 
 ## Confirmed blockers
 
-1. Gateway and Infrastructure must adopt the implemented Document Export 2.0.0
+1. Gateway and Infrastructure must adopt the implemented Document Export 2.1.0
    service-identity and owner-context contract before ownership is enforced in
    the deployed end-to-end path.
 2. The replacement flow stores uploaded DOCX bytes but regenerates PDF from
    stale generated text; it can falsely claim the PDF was updated.
 3. `documentKind` is not checked against the stored document type.
-4. Exporting multiple formats is not atomic; partial saves can leave an
-   inconsistent active file set.
+4. General exporting of multiple formats is not atomic. Tracker-orchestrated
+   replacement writes are now replay-safe, but other partial saves can still
+   leave an inconsistent active file set.
 5. A real-office DOCX edit/save round trip and integrated two-user denial
    remain outstanding system evidence; local structural/quality and
    service-boundary tests do not replace them.
-6. Downstream calls do not share a bounded timeout/retry/idempotency policy.
+6. Downstream calls do not share a bounded timeout/retry policy. APP-08 adds
+   idempotency to replacement writes only.
 7. The Dockerfile lacks a non-root runtime, digest-pinned bases, explicit
     resource constraints, and supply-chain scan evidence.
 8. Wider document-generation consumers still need the same reproducible

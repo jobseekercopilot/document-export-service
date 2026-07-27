@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobseekercopilot.documentexport.dto.DocumentExportItem;
 import com.jobseekercopilot.documentexport.dto.DocumentExportRequest;
 import com.jobseekercopilot.documentexport.dto.DocumentExportResponse;
+import com.jobseekercopilot.documentexport.dto.DocumentKind;
+import com.jobseekercopilot.documentexport.dto.DocumentUploadResponse;
 import com.jobseekercopilot.documentexport.dto.ExportFormat;
 import com.jobseekercopilot.documentexport.security.DocumentExportCredentials;
 import com.jobseekercopilot.documentexport.security.DocumentExportIdentityFilter;
@@ -14,6 +16,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
@@ -66,6 +69,57 @@ class DocumentExportControllerTest {
                 .andExpect(jsonPath("$.exports[0].fileId").value(fileId.toString()))
                 .andExpect(jsonPath("$.exports[0].downloadUrl").value("/api/v1/document-files/" + fileId + "/download"));
         verify(documentExportService).exportDocument(eq(documentId), any(), eq(OWNER));
+    }
+
+    @Test
+    void replacementWorkflowKeyIsForwardedToReplaySafeExport()
+            throws Exception {
+        UUID documentId = UUID.randomUUID();
+        String operationKey = UUID.randomUUID().toString();
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "edited.docx",
+                DocumentExportService.DOCX_MIME_TYPE,
+                "synthetic".getBytes());
+        when(documentExportService.uploadReplacement(
+                        eq(documentId),
+                        any(),
+                        eq(DocumentKind.CV),
+                        eq(ExportFormat.DOCX),
+                        eq(OWNER),
+                        eq(operationKey)))
+                .thenReturn(DocumentUploadResponse.builder()
+                        .generatedDocumentId(documentId)
+                        .message("Replacement stored")
+                        .build());
+
+        mockMvc.perform(org.springframework.test.web.servlet.request
+                        .MockMvcRequestBuilders.multipart(
+                                "/api/v1/document-exports/documents/"
+                                        + "{documentId}/upload",
+                                documentId)
+                        .file(file)
+                        .param("documentKind", "CV")
+                        .param("uploadedFormat", "DOCX")
+                        .header(
+                                DocumentExportIdentityFilter
+                                        .SERVICE_TOKEN_HEADER,
+                                GATEWAY_TOKEN)
+                        .header(
+                                DocumentExportIdentityFilter.OWNER_HEADER,
+                                OWNER)
+                        .header("Idempotency-Key", operationKey))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.generatedDocumentId")
+                        .value(documentId.toString()));
+
+        verify(documentExportService).uploadReplacement(
+                eq(documentId),
+                any(),
+                eq(DocumentKind.CV),
+                eq(ExportFormat.DOCX),
+                eq(OWNER),
+                eq(operationKey));
     }
 
     @Test

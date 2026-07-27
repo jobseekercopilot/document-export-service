@@ -14,7 +14,7 @@ public class OpenApiConfig {
     OpenAPI documentExportOpenApi() {
         return new OpenAPI().info(new Info()
                 .title("Jobseeker Copilot - Document Export API")
-                .version("2.0.0")
+                .version("2.1.0")
                 .description("""
                         Exports generated document content into DOCX and PDF files and saves them
                         to document-store-service. Every export operation requires the approved
