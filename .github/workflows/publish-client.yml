@@ -70,7 +70,7 @@ jobs:
       - name: Reject an existing immutable coordinate
         env:
           PACKAGE_URL: >-
-            https://maven.pkg.github.com/jobseekercopilot/document-export-service/com/jobseekercopilot/clients/document-export-service-client/2.0.0-rev.a35fff34f86b/document-export-service-client-2.0.0-rev.a35fff34f86b.pom
+            https://maven.pkg.github.com/jobseekercopilot/document-export-service/com/jobseekercopilot/clients/document-export-service-client/2.1.0-rev.9a26dd3239fc/document-export-service-client-2.1.0-rev.9a26dd3239fc.pom
         run: |
           response_file="${{ runner.temp }}/package-response"
           status="$(
