@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
@@ -28,6 +29,16 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     ResponseEntity<ApiError> illegalArgument(IllegalArgumentException exception, HttpServletRequest request) {
         return response(HttpStatus.BAD_REQUEST, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    ResponseEntity<ApiError> missingHeader(
+            MissingRequestHeaderException exception,
+            HttpServletRequest request) {
+        return response(
+                HttpStatus.BAD_REQUEST,
+                "Required request header is missing.",
+                request);
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)

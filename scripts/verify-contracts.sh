@@ -20,13 +20,13 @@ done
 
 test "$(wc -l < "$source_metadata" | tr -d ' ')" = 4
 grep -Fx 'repository=jobseekercopilot/document-store-service' "$source_metadata" >/dev/null
-grep -Fx 'revision=b696fe81e9b900e0749e185f595ff4c98c24119d' "$source_metadata" >/dev/null
+grep -Fx 'revision=4180596ba5b23998ae6f001c4e624fbc395b4ce4' "$source_metadata" >/dev/null
 grep -Fx 'path=contracts/openapi.json' "$source_metadata" >/dev/null
-grep -Fx 'sha256=3d0595c83cc66d9037e08af6a4b087c115c9a5d99ec71491f1aa5fc3afffd6ba' "$source_metadata" >/dev/null
+grep -Fx 'sha256=d510b39c9629b6ea7663fa76baa6e3b14798b87315b44a65e76a8a8defab8715' "$source_metadata" >/dev/null
 
 jq -e '
     (.openapi | type == "string" and startswith("3.")) and
-    (.info.version == "1.1.0") and
+    (.info.version == "2.2.0") and
     (.components.securitySchemes.serviceToken.type == "apiKey") and
     (.components.securitySchemes.serviceToken.in == "header") and
     (.components.securitySchemes.serviceToken.name == "X-Service-Token") and
@@ -38,6 +38,10 @@ jq -e '
     (.paths["/api/v1/document-files"].post.operationId == "createDocumentFile") and
     (.paths["/api/v1/document-files"].post.parameters
         | any(.name == "X-Document-Owner" and .in == "header")) and
+    (.paths["/api/v1/document-files"].post.parameters
+        | any(.name == "Idempotency-Key" and .in == "header"
+            and .description
+            == "Stable retry key; the same key and bytes return the original file")) and
     (.paths["/api/v1/document-files"].post.security
         | any(has("serviceToken"))) and
     (.paths["/api/v1/documents/{generatedDocumentId}/files/upload"].post.operationId == "uploadReplacementFile") and

@@ -91,4 +91,19 @@ if "$repository_root/scripts/verify-api-contract.sh" "$temporary_dir/owner-conte
     exit 1
 fi
 
+copy_contract "$temporary_dir/idempotency"
+jq 'del(
+    .paths["/api/v1/document-exports/documents/{documentId}"].post.parameters[]
+    | select(.name == "Idempotency-Key")
+)' \
+    "$temporary_dir/idempotency/openapi.json" \
+    > "$temporary_dir/idempotency/changed.json"
+mv "$temporary_dir/idempotency/changed.json" \
+   "$temporary_dir/idempotency/openapi.json"
+(cd "$temporary_dir/idempotency" && sha256sum openapi.json > SHA256SUMS)
+if "$repository_root/scripts/verify-api-contract.sh" "$temporary_dir/idempotency" >/dev/null 2>&1; then
+    echo "API contract policy negative test accepted removal of ordinary export idempotency" >&2
+    exit 1
+fi
+
 echo "API contract policy tests passed"

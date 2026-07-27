@@ -19,7 +19,7 @@ done
 
 jq -e '
     (.openapi | type == "string" and startswith("3.")) and
-    (.info.version == "2.1.0") and
+    (.info.version == "3.0.0") and
     (.components.securitySchemes.serviceToken.type == "apiKey") and
     (.components.securitySchemes.serviceToken.in == "header") and
     (.components.securitySchemes.serviceToken.name == "X-Service-Token") and
@@ -29,6 +29,9 @@ jq -e '
         | any(.name == "documentId" and .in == "path" and .required == true)) and
     (.paths["/api/v1/document-exports/documents/{documentId}"].post.parameters
         | any(.name == "X-Document-Owner" and .in == "header" and .required == true)) and
+    (.paths["/api/v1/document-exports/documents/{documentId}"].post.parameters
+        | any(.name == "Idempotency-Key" and .in == "header"
+            and .required == true and .schema.type == "string")) and
     (.paths["/api/v1/document-exports/documents/{documentId}"].post.security
         | any(has("serviceToken"))) and
     (.paths["/api/v1/document-exports/documents/{documentId}"].post.requestBody.required

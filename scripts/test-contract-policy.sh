@@ -71,7 +71,7 @@ if "$repository_root/scripts/verify-contracts.sh" "$temporary_dir/file-content" 
 fi
 
 copy_contract "$temporary_dir/source-revision"
-sed 's/revision=b696fe8/revision=0000000/' \
+sed 's/revision=4180596/revision=0000000/' \
     "$temporary_dir/source-revision/document-store-service.SOURCE" \
     > "$temporary_dir/source-revision/changed.SOURCE"
 mv "$temporary_dir/source-revision/changed.SOURCE" \
@@ -105,6 +105,21 @@ mv "$temporary_dir/service-identity/changed.json" \
 (cd "$temporary_dir/service-identity" && sha256sum document-store-service.json > SHA256SUMS)
 if "$repository_root/scripts/verify-contracts.sh" "$temporary_dir/service-identity" >/dev/null 2>&1; then
     echo "contract policy negative test accepted removal of Store service authentication" >&2
+    exit 1
+fi
+
+copy_contract "$temporary_dir/idempotency"
+jq 'del(
+    .paths["/api/v1/document-files"].post.parameters[]
+    | select(.name == "Idempotency-Key")
+)' \
+    "$temporary_dir/idempotency/document-store-service.json" \
+    > "$temporary_dir/idempotency/changed.json"
+mv "$temporary_dir/idempotency/changed.json" \
+   "$temporary_dir/idempotency/document-store-service.json"
+(cd "$temporary_dir/idempotency" && sha256sum document-store-service.json > SHA256SUMS)
+if "$repository_root/scripts/verify-contracts.sh" "$temporary_dir/idempotency" >/dev/null 2>&1; then
+    echo "contract policy negative test accepted removal of Store file idempotency" >&2
     exit 1
 fi
 
