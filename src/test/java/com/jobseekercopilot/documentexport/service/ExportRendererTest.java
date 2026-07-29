@@ -18,6 +18,7 @@ import java.io.ByteArrayInputStream;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -249,6 +250,92 @@ class ExportRendererTest {
     }
 
     @Test
+    void improvedCvSectionNamesRenderAsGovernedStructureAcrossFormats()
+            throws Exception {
+        List<String> expectedHeadings = List.of(
+                "Technical profile",
+                "Projects",
+                "Technical skills",
+                "Education and qualifications",
+                "Additional experience",
+                "Work history");
+        GeneratedDocumentResponse document = improvedSectionDocument();
+        byte[] docxBytes = docxExportService().export(document);
+        byte[] pdfBytes = pdfExportService().export(document);
+
+        String docxText;
+        try (XWPFDocument docx = new XWPFDocument(
+                new ByteArrayInputStream(docxBytes))) {
+            docxText = bodyText(docx);
+            assertEquals(
+                    expectedHeadings,
+                    docx.getParagraphs().stream()
+                            .filter(paragraph -> "Heading1".equals(
+                                    paragraph.getStyleID()))
+                            .map(paragraph -> paragraph.getText())
+                            .toList());
+        }
+
+        String pdfText = pdfText(pdfBytes);
+        PdfReader reader = new PdfReader(pdfBytes);
+        try {
+            List<PdfName> roles = pdfStructureRoles(
+                    reader.getCatalog().get(PdfName.STRUCTTREEROOT));
+            assertEquals(
+                    expectedHeadings.size(),
+                    roles.stream()
+                            .filter(PdfName.H2::equals)
+                            .count());
+        } finally {
+            reader.close();
+        }
+        assertInOrder(pdfText, expectedHeadings.toArray(String[]::new));
+        assertEquals(
+                normalizedExtractedText(docxText),
+                normalizedExtractedText(pdfText));
+    }
+
+    @Test
+    void professionalProfileProducerHeadingRemainsStructural()
+            throws Exception {
+        GeneratedDocumentResponse document =
+                professionalProfileDocument();
+        byte[] docxBytes = docxExportService().export(document);
+        byte[] pdfBytes = pdfExportService().export(document);
+
+        String docxText;
+        try (XWPFDocument docx = new XWPFDocument(
+                new ByteArrayInputStream(docxBytes))) {
+            docxText = bodyText(docx);
+            assertEquals(
+                    "Tailored CV",
+                    docx.getParagraphs().get(0).getText());
+            assertTrue(docx.getParagraphs().stream().anyMatch(
+                    paragraph -> "Professional Profile".equals(
+                            paragraph.getText())
+                            && "Heading1".equals(
+                                    paragraph.getStyleID())));
+        }
+
+        String pdfText = pdfText(pdfBytes);
+        PdfReader reader = new PdfReader(pdfBytes);
+        try {
+            assertEquals(
+                    1,
+                    pdfStructureRoles(
+                            reader.getCatalog().get(
+                                    PdfName.STRUCTTREEROOT)).stream()
+                            .filter(PdfName.H2::equals)
+                            .count());
+        } finally {
+            reader.close();
+        }
+        assertEquals(
+                normalizedExtractedText(docxText),
+                normalizedExtractedText(pdfText));
+    }
+
+    @Test
     void unknownMarkupAndUnsafeSchemesRemainInertPlainText()
             throws Exception {
         GeneratedDocumentResponse document = unknownContentDocument();
@@ -282,33 +369,40 @@ class ExportRendererTest {
     }
 
     @Test
-    void taggedPdfPreservesStructureAndTextAcrossPageBoundaries()
+    void richCvContentFlowsAcrossPagesWithoutTruncationOrPadding()
             throws Exception {
-        StringBuilder content = new StringBuilder("""
-                Tailored CV
-
-                Alex Candidate
-
-                Core Skills
-                """);
-        for (int index = 1; index <= 120; index++) {
-            content.append("- Evidence item ")
-                    .append(index)
-                    .append(": deterministic synthetic content.\n");
-        }
+        List<String> evidenceItems = IntStream.rangeClosed(1, 120)
+                .mapToObj(index -> "Evidence item %03d: designed, delivered and validated synthetic capability."
+                        .formatted(index))
+                .toList();
         GeneratedDocumentResponse document =
-                new GeneratedDocumentResponse()
-                        .id(UUID.randomUUID())
-                        .documentType(
-                                GeneratedDocumentResponse.DocumentTypeEnum.CV)
-                        .title("Tailored CV")
-                        .content(content.toString());
+                richMultiPageDocument(evidenceItems);
+        byte[] docxBytes = docxExportService().export(document);
+        byte[] pdfBytes = pdfExportService().export(document);
 
-        byte[] bytes = pdfExportService().export(document);
+        String docxText;
+        try (XWPFDocument docx = new XWPFDocument(
+                new ByteArrayInputStream(docxBytes))) {
+            docxText = bodyText(docx);
+            assertEquals(
+                    evidenceItems,
+                    docx.getParagraphs().stream()
+                            .filter(paragraph -> paragraph.getNumID() != null)
+                            .map(paragraph -> paragraph.getText())
+                            .toList());
+        }
 
-        PdfReader reader = new PdfReader(bytes);
+        PdfReader reader = new PdfReader(pdfBytes);
         try {
             assertTrue(reader.getNumberOfPages() > 1);
+            PdfTextExtractor extractor = new PdfTextExtractor(reader);
+            for (int page = 1; page <= reader.getNumberOfPages(); page++) {
+                assertTrue(
+                        !normalizedExtractedText(
+                                extractor.getTextFromPage(page)).isBlank(),
+                        "Rendered PDF must not contain a padded blank page: "
+                                + page);
+            }
             List<PdfName> roles = pdfStructureRoles(
                     reader.getCatalog().get(
                             PdfName.STRUCTTREEROOT));
@@ -324,9 +418,15 @@ class ExportRendererTest {
             reader.close();
         }
 
-        String text = pdfText(bytes);
-        assertTrue(text.contains("Evidence item 1:"));
-        assertTrue(text.contains("Evidence item 120:"));
+        String pdfText = pdfText(pdfBytes);
+        assertInOrder(pdfText, evidenceItems.toArray(String[]::new));
+        String expectedText = expectedRichExtractedText(evidenceItems);
+        assertEquals(
+                expectedText,
+                normalizedExtractedText(docxText));
+        assertEquals(
+                expectedText,
+                normalizedExtractedText(pdfText));
     }
 
     private GeneratedDocumentResponse document() {
@@ -409,6 +509,115 @@ class ExportRendererTest {
                         Core Skills
                         - Māori localisation: naïve façade; £95k.
                         """);
+    }
+
+    private GeneratedDocumentResponse improvedSectionDocument() {
+        return new GeneratedDocumentResponse()
+                .id(UUID.fromString(
+                        "10000000-0000-0000-0000-000000000001"))
+                .documentType(
+                        GeneratedDocumentResponse.DocumentTypeEnum.CV)
+                .title("Tailored CV")
+                .content("""
+                        Tailored CV
+
+                        Alex Candidate
+                        alex@example.test
+                        London
+
+                        Technical profile
+                        Builds accessible services with deterministic delivery.
+
+                        Projects
+                        Project Atlas
+                        Delivered a governed migration.
+
+                        Technical skills
+                        - Java
+                        - PostgreSQL
+
+                        Education and qualifications
+                        BSc Computer Science.
+
+                        Additional experience
+                        Community technology mentor.
+
+                        Work history
+                        Software Engineer
+                        Built reliable services.
+                        """);
+    }
+
+    private GeneratedDocumentResponse professionalProfileDocument() {
+        return new GeneratedDocumentResponse()
+                .id(UUID.fromString(
+                        "10000000-0000-0000-0000-000000000003"))
+                .documentType(
+                        GeneratedDocumentResponse.DocumentTypeEnum.CV)
+                .title("Tailored CV")
+                .content("""
+                        Tailored CV
+
+                        Professional Profile
+                        Builds reliable services with governed delivery.
+                        """);
+    }
+
+    private GeneratedDocumentResponse richMultiPageDocument(
+            List<String> evidenceItems) {
+        String bullets = evidenceItems.stream()
+                .map(item -> "- " + item)
+                .collect(Collectors.joining("\n"));
+        return new GeneratedDocumentResponse()
+                .id(UUID.fromString(
+                        "10000000-0000-0000-0000-000000000002"))
+                .documentType(
+                        GeneratedDocumentResponse.DocumentTypeEnum.CV)
+                .title("Tailored CV")
+                .content("""
+                        Tailored CV
+
+                        Alex Candidate
+                        alex@example.test
+                        London
+
+                        Technical profile
+                        Accessible platform engineer with UK delivery experience.
+                        Portfolio: https://example.test/alex.
+
+                        Projects
+                        Project Atlas
+                        Delivered a synthetic multi-service migration.
+
+                        Technical skills
+                        %s
+
+                        Education and qualifications
+                        BSc Computer Science with first-class honours.
+
+                        Additional experience
+                        Supported community technology workshops and mentoring.
+                        """.formatted(bullets));
+    }
+
+    private String expectedRichExtractedText(
+            List<String> evidenceItems) {
+        return normalizedExtractedText("""
+                Alex Candidate
+                alex@example.test | London
+                Technical profile
+                Accessible platform engineer with UK delivery experience.
+                Portfolio: https://example.test/alex.
+                Projects
+                Project Atlas
+                Delivered a synthetic multi-service migration.
+                Technical skills
+                %s
+                Education and qualifications
+                BSc Computer Science with first-class honours.
+                Additional experience
+                Supported community technology workshops and mentoring.
+                """.formatted(String.join("\n", evidenceItems)));
     }
 
     private GeneratedDocumentResponse unknownContentDocument() {
