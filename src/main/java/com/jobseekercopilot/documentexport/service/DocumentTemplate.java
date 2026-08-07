@@ -13,14 +13,20 @@ public class DocumentTemplate {
     private static final Set<String> CV_HEADINGS = Set.of(
             "personal summary",
             "profile",
+            "technical profile",
+            "professional profile",
             "core skills",
             "key skills",
             "skills",
+            "technical skills",
+            "projects",
             "work history",
             "employment history",
             "professional experience",
+            "additional experience",
             "qualifications",
-            "education");
+            "education",
+            "education and qualifications");
 
     private final DocumentKind kind;
     private final DocumentMetadata metadata;
