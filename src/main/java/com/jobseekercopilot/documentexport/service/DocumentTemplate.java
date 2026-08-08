@@ -6,6 +6,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 public class DocumentTemplate {
     public static final String BRAND_FOOTER = "Generated with Job Seeker Copilot";
@@ -20,6 +21,7 @@ public class DocumentTemplate {
             "skills",
             "technical skills",
             "projects",
+            "selected projects",
             "work history",
             "employment history",
             "professional experience",
@@ -27,6 +29,27 @@ public class DocumentTemplate {
             "qualifications",
             "education",
             "education and qualifications");
+
+    private static final Set<String> ENTRY_SECTIONS = Set.of(
+            "professional experience",
+            "work history",
+            "employment history",
+            "additional experience",
+            "projects",
+            "selected projects");
+
+    private static final Set<String> SKILL_SECTIONS = Set.of(
+            "core skills",
+            "key skills",
+            "skills",
+            "technical skills");
+
+    private static final Pattern DATE_RANGE = Pattern.compile(
+            "(?i)^(?:(?:january|february|march|april|may|june|july|august|"
+                    + "september|october|november|december)\\s+)?\\d{4}"
+                    + "\\s*[–—-]\\s*(?:(?:january|february|march|april|may|"
+                    + "june|july|august|september|october|november|december)"
+                    + "\\s+)?(?:\\d{4}|present|current)$");
 
     private final DocumentKind kind;
     private final DocumentMetadata metadata;
@@ -52,14 +75,14 @@ public class DocumentTemplate {
 
         Header header = header(paragraphs, title, kind);
         List<Block> blocks = new ArrayList<>();
-        blocks.add(new Block(BlockStyle.TITLE, header.title()));
+        blocks.add(new Block(BlockStyle.TITLE, header.title(), true, true));
         if (!header.subtitle().isBlank()) {
-            blocks.add(new Block(BlockStyle.SUBTITLE, header.subtitle()));
+            blocks.add(new Block(BlockStyle.SUBTITLE, header.subtitle(), true, true));
         }
         if (!header.contact().isBlank()) {
-            blocks.add(new Block(BlockStyle.CONTACT, header.contact()));
+            blocks.add(new Block(BlockStyle.CONTACT, header.contact(), true, true));
         }
-        blocks.add(new Block(BlockStyle.ACCENT_LINE, ""));
+        blocks.add(new Block(BlockStyle.ACCENT_LINE, "", false, true));
 
         int contentStart = header.contentStart();
         if (kind == DocumentKind.CV) {
@@ -128,31 +151,99 @@ public class DocumentTemplate {
     }
 
     private static void addCvBlocks(List<Block> blocks, List<String> paragraphs) {
+        String section = "";
         for (String paragraph : paragraphs) {
             List<String> lines = lines(paragraph);
-            for (int index = 0; index < lines.size(); index++) {
-                String line = lines.get(index);
+            for (String line : lines) {
                 if (isCvHeading(line)) {
-                    blocks.add(new Block(BlockStyle.SECTION_HEADING, line));
+                    section = line.toLowerCase(Locale.ROOT);
+                    blocks.add(new Block(
+                            BlockStyle.SECTION_HEADING,
+                            line,
+                            true,
+                            true));
                 } else if (line.startsWith("- ")) {
-                    blocks.add(new Block(BlockStyle.BULLET, line.substring(2).trim()));
-                } else if (index == 0 && lines.size() > 1 && !paragraph.contains(".")) {
-                    blocks.add(new Block(BlockStyle.ROLE_HEADING, line));
+                    blocks.add(new Block(
+                            BlockStyle.BULLET,
+                            line.substring(2).trim(),
+                            false,
+                            true));
+                } else if (SKILL_SECTIONS.contains(section)) {
+                    blocks.add(new Block(
+                            BlockStyle.SKILLS,
+                            readableSkills(line),
+                            false,
+                            true));
+                } else if (ENTRY_SECTIONS.contains(section)
+                        && isDateRange(line)) {
+                    blocks.add(new Block(
+                            BlockStyle.ENTRY_META,
+                            line,
+                            true,
+                            true));
+                } else if (ENTRY_SECTIONS.contains(section)
+                        && isEntryHeading(line)) {
+                    blocks.add(new Block(
+                            BlockStyle.ROLE_HEADING,
+                            line.replace(" - ", " — "),
+                            true,
+                            true));
                 } else {
-                    blocks.add(new Block(BlockStyle.PARAGRAPH, line));
+                    blocks.add(new Block(
+                            BlockStyle.PARAGRAPH,
+                            line,
+                            false,
+                            true));
                 }
             }
         }
     }
 
     private static void addCoverLetterBlocks(List<Block> blocks, List<String> paragraphs) {
+        int firstAdded = blocks.size();
         for (String paragraph : paragraphs) {
             List<String> lines = lines(paragraph);
             if (lines.isEmpty()) {
                 continue;
             }
-            blocks.add(new Block(BlockStyle.PARAGRAPH, String.join("\n", lines)));
+            String text = String.join("\n", lines);
+            BlockStyle style = text.toLowerCase(Locale.ROOT).startsWith("yours ")
+                    ? BlockStyle.SIGN_OFF
+                    : BlockStyle.PARAGRAPH;
+            blocks.add(new Block(style, text, false, true));
         }
+        if (blocks.size() - firstAdded >= 2
+                && blocks.get(blocks.size() - 1).style() == BlockStyle.SIGN_OFF) {
+            int keepFrom = Math.max(firstAdded, blocks.size() - 5);
+            for (int index = keepFrom; index < blocks.size() - 1; index++) {
+                blocks.set(
+                        index,
+                        blocks.get(index).withKeepWithNext(true));
+            }
+        }
+    }
+
+    private static boolean isDateRange(String line) {
+        return DATE_RANGE.matcher(line.trim()).matches();
+    }
+
+    private static boolean isEntryHeading(String line) {
+        String value = line.trim();
+        return value.length() <= 360
+                && (value.contains(" — ") || value.contains(" - "))
+                && !value.endsWith(".")
+                && !value.endsWith("!")
+                && !value.endsWith("?");
+    }
+
+    private static String readableSkills(String line) {
+        if (!line.contains(",")) {
+            return line;
+        }
+        return Arrays.stream(line.split("\\s*,\\s*"))
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .collect(java.util.stream.Collectors.joining(" · "));
     }
 
     private static String title(
@@ -172,6 +263,7 @@ public class DocumentTemplate {
         }
         return Arrays.stream(content.split("\\R\\s*\\R"))
                 .map(String::trim)
+                .map(PublicDocumentText::visible)
                 .filter(value -> !value.isEmpty())
                 .toList();
     }
@@ -212,18 +304,33 @@ public class DocumentTemplate {
         ACCENT_LINE,
         SECTION_HEADING,
         ROLE_HEADING,
+        ENTRY_META,
+        SKILLS,
         PARAGRAPH,
         BULLET,
+        SIGN_OFF,
         FOOTER
     }
 
-    public record Block(BlockStyle style, String text) {
+    public record Block(
+            BlockStyle style,
+            String text,
+            boolean keepWithNext,
+            boolean keepTogether) {
+        public Block(BlockStyle style, String text) {
+            this(style, text, false, false);
+        }
+
         public Block {
             if (style == null) {
                 throw new IllegalArgumentException(
                         "Render block style is required");
             }
             text = text == null ? "" : text;
+        }
+
+        Block withKeepWithNext(boolean value) {
+            return new Block(style, text, value, keepTogether);
         }
     }
 

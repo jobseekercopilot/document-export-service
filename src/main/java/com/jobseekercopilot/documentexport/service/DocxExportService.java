@@ -60,6 +60,7 @@ public class DocxExportService {
             XWPFDocument docx,
             DocumentTemplate.Block block,
             BigInteger bulletNumbering) {
+        int paragraphCount = docx.getParagraphs().size();
         switch (block.style()) {
             case TITLE -> addTitle(docx, block.text());
             case SUBTITLE -> addSubtitle(docx, block.text());
@@ -67,13 +68,30 @@ public class DocxExportService {
             case ACCENT_LINE -> addAccentLine(docx);
             case SECTION_HEADING -> addSectionHeading(docx, block.text());
             case ROLE_HEADING -> addRoleHeading(docx, block.text());
+            case ENTRY_META -> addEntryMeta(docx, block.text());
+            case SKILLS -> addSkills(docx, block.text());
             case BULLET -> addBullet(
                     docx,
                     block.text(),
                     bulletNumbering);
-            case PARAGRAPH -> addParagraph(docx, block.text());
+            case PARAGRAPH, SIGN_OFF -> addParagraph(docx, block.text());
             case FOOTER -> {
                 // Footer is added through the document section so it repeats on every page.
+            }
+        }
+        if (docx.getParagraphs().size() > paragraphCount) {
+            XWPFParagraph paragraph = docx.getParagraphs()
+                    .get(docx.getParagraphs().size() - 1);
+            if (block.keepWithNext()) {
+                paragraph.setKeepNext(true);
+            }
+            if (block.keepTogether()) {
+                var properties = paragraph.getCTP().isSetPPr()
+                        ? paragraph.getCTP().getPPr()
+                        : paragraph.getCTP().addNewPPr();
+                if (!properties.isSetKeepLines()) {
+                    properties.addNewKeepLines();
+                }
             }
         }
     }
@@ -189,10 +207,25 @@ public class DocxExportService {
 
     private void addRoleHeading(XWPFDocument docx, String text) {
         XWPFParagraph paragraph = docx.createParagraph();
-        paragraph.setSpacingBefore(110);
-        paragraph.setSpacingAfter(40);
+        paragraph.setSpacingBefore(150);
+        paragraph.setSpacingAfter(30);
         paragraph.setStyle("Heading2");
         addTextRuns(paragraph, text, 11, true, DARK_TEXT);
+    }
+
+    private void addEntryMeta(XWPFDocument docx, String text) {
+        XWPFParagraph paragraph = docx.createParagraph();
+        paragraph.setSpacingAfter(55);
+        paragraph.setStyle("Normal");
+        addTextRuns(paragraph, text, 9, false, MUTED_TEXT);
+    }
+
+    private void addSkills(XWPFDocument docx, String text) {
+        XWPFParagraph paragraph = docx.createParagraph();
+        paragraph.setSpacingAfter(120);
+        paragraph.setSpacingBetween(1.12);
+        paragraph.setStyle("Normal");
+        addTextRuns(paragraph, text, 10, false, DARK_TEXT);
     }
 
     private void addParagraph(XWPFDocument docx, String text) {
