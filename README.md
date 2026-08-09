@@ -1,5 +1,13 @@
 # Document Export Service
 
+## Role in Job Seeker Copilot
+
+| Role | Called by | Calls | Data | Local port |
+|---|---|---|---|---:|
+| Stateless DOCX/PDF renderer and bounded DOCX upload processor | Document Generation Gateway | Document Store Service | None | 8094 |
+
+See the central [document journey](https://docs.jobseekercopilot.com/journeys/documents/), [domain services](https://docs.jobseekercopilot.com/services/domain-services/), and [API map](https://docs.jobseekercopilot.com/apis/overview/).
+
 Renders stored generated-document text to DOCX and PDF and writes exported
 bytes back to `document-store-service`.
 
