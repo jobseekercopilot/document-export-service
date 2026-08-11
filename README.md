@@ -11,14 +11,14 @@ See the central [document journey](https://docs.jobseekercopilot.com/journeys/do
 Renders stored generated-document text to DOCX and PDF and writes exported
 bytes back to `document-store-service`.
 
-This service is **not beta-ready**. Its build is reproducible from committed
-source, its service-to-service boundary requires an authenticated Gateway
+This service is implemented, composed and exercised for controlled private-beta
+DOCX/PDF export. Its build is reproducible from committed source and its
+service-to-service boundary requires an authenticated Gateway
 identity with owner-bound Store calls, and untrusted DOCX uploads and in-memory
 renders now have explicit safety budgets. PDF/DOCX output has synthetic
 Unicode, accessible structure, link, reading-order and reviewed-font evidence.
-The Gateway and deployment still have to adopt the identity contract, and the
-replacement flow still creates a PDF from old stored text instead of the
-uploaded DOCX.
+The replacement-flow limitation and remaining production deployment controls
+are not concealed by that beta evidence.
 See [`docs/BETA_READINESS_AUDIT.md`](docs/BETA_READINESS_AUDIT.md).
 
 ## Technology
