@@ -11,6 +11,7 @@ import com.lowagie.text.pdf.PdfString;
 import com.lowagie.text.pdf.parser.PdfTextExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFHyperlinkRun;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.junit.jupiter.api.Test;
 
@@ -429,6 +430,226 @@ class ExportRendererTest {
                 normalizedExtractedText(pdfText));
     }
 
+    @Test
+    void internalEvidenceMetadataIsExcludedFromBothPublicFormats()
+            throws Exception {
+        GeneratedDocumentResponse document = document().content("""
+                Tailored CV
+
+                Alex Candidate
+                alex@example.com
+                London
+
+                Professional Profile
+                Builds reliable services. (evidenceIds: ["PROFILE.SKILL.1"])
+
+                Technical Skills
+                Java · Spring Boot
+                """);
+
+        byte[] docxBytes = docxExportService().export(document);
+        byte[] pdfBytes = pdfExportService().export(document);
+
+        try (XWPFDocument docx = new XWPFDocument(
+                new ByteArrayInputStream(docxBytes))) {
+            assertTrue(bodyText(docx).contains("Builds reliable services."));
+            assertTrue(!bodyText(docx).contains("evidenceIds"));
+            assertTrue(!bodyText(docx).contains("PROFILE.SKILL.1"));
+        }
+        String pdfText = pdfText(pdfBytes);
+        assertTrue(pdfText.contains("Builds reliable services."));
+        assertTrue(!pdfText.contains("evidenceIds"));
+        assertTrue(!pdfText.contains("PROFILE.SKILL.1"));
+    }
+
+    @Test
+    void flatSkillsAndEntrySeparatorsAreMoreReadableAcrossFormats()
+            throws Exception {
+        GeneratedDocumentResponse document = document().content("""
+                Tailored CV
+
+                Alex Candidate
+
+                Technical Skills
+                Java, Spring Boot, Angular, AWS
+
+                Professional Experience
+                Software Engineer - Example Ltd
+                January 2021 – Present
+                - Delivered reliable services.
+                """);
+
+        String pdfText = pdfText(pdfExportService().export(document));
+        assertTrue(pdfText.contains("Java · Spring Boot · Angular · AWS"));
+        assertTrue(pdfText.contains("Software Engineer — Example Ltd"));
+
+        try (XWPFDocument docx = new XWPFDocument(
+                new ByteArrayInputStream(docxExportService().export(document)))) {
+            String docxText = bodyText(docx);
+            assertTrue(docxText.contains("Java · Spring Boot · Angular · AWS"));
+            assertTrue(docxText.contains("Software Engineer — Example Ltd"));
+        }
+    }
+
+    @Test
+    void pdfKeepsNormalSizedBulletOnOnePage() throws Exception {
+        String filler = IntStream.rangeClosed(1, 27)
+                .mapToObj(index -> "- Supporting delivery point %02d with concise evidence."
+                        .formatted(index))
+                .collect(Collectors.joining("\n"));
+        String target = "TARGETSTART "
+                + "implemented a carefully governed cross-service migration with automated testing, "
+                + "accessible output, deterministic recovery, operational diagnostics and documented "
+                + "release controls while preserving the complete user journey TARGETEND.";
+        GeneratedDocumentResponse document = document().content("""
+                Tailored CV
+
+                Alex Candidate
+                alex@example.com
+                London
+
+                Professional Experience
+                Platform Engineer — Example Ltd
+                January 2021 – Present
+                %s
+                - %s
+                """.formatted(filler, target));
+
+        List<String> pages = pdfPageTexts(
+                pdfExportService().export(document));
+
+        List<String> targetPages = pages.stream()
+                .filter(page -> page.contains("TARGETSTART")
+                        || page.contains("TARGETEND"))
+                .toList();
+        assertEquals(1, targetPages.size());
+        assertTrue(targetPages.get(0).contains("TARGETSTART"));
+        assertTrue(targetPages.get(0).contains("TARGETEND"));
+    }
+
+    @Test
+    void coverLetterClosingAndSignatureRemainOnTheSamePdfPage()
+            throws Exception {
+        String body = IntStream.rangeClosed(1, 18)
+                .mapToObj(index -> ("Paragraph %02d explains relevant delivery experience, "
+                        + "collaboration, testing and maintainable implementation in clear professional prose. "
+                        + "It connects confirmed evidence to the advertised role without inventing facts.")
+                        .formatted(index))
+                .collect(Collectors.joining("\n\n"));
+        GeneratedDocumentResponse document = coverLetter().content("""
+                Developer Cover Letter
+
+                Alex Candidate
+                alex@example.com
+                London
+
+                Application for Developer at Example Ltd
+
+                Dear Hiring Manager,
+
+                %s
+
+                FINAL-BODY I would welcome the opportunity to bring this relevant delivery experience to the team.
+
+                FINAL-CLOSING Thank you for considering my application.
+
+                Yours faithfully,
+                Alex Candidate
+                """.formatted(body));
+
+        List<String> pages = pdfPageTexts(
+                pdfExportService().export(document));
+        String signaturePage = pages.stream()
+                .filter(page -> page.contains("Yours faithfully"))
+                .findFirst()
+                .orElseThrow();
+
+        assertTrue(pages.size() > 1);
+        assertTrue(signaturePage.contains("Paragraph 18"));
+        assertTrue(signaturePage.contains("FINAL-BODY"));
+        assertTrue(signaturePage.contains("FINAL-CLOSING"));
+        assertTrue(signaturePage.contains("Alex Candidate"));
+    }
+
+    @Test
+    void pdfDoesNotDropEntryHeadingAtAPageBoundary()
+            throws Exception {
+        for (int fillerCount = 1; fillerCount <= 36; fillerCount++) {
+            String filler = IntStream.rangeClosed(1, fillerCount)
+                    .mapToObj(index -> "- Delivery evidence %02d covers implementation, testing and collaboration."
+                            .formatted(index))
+                    .collect(Collectors.joining("\n"));
+            GeneratedDocumentResponse document = document().content("""
+                    Tailored CV
+
+                    Alex Candidate
+                    alex@example.com
+                    London
+
+                    Professional Profile
+                    Experienced engineer delivering reliable full-stack applications with tested services, accessible interfaces and maintainable cloud infrastructure for cross-functional product teams.
+
+                    Technical Skills
+                    Java · Spring Boot · Angular · AWS · Automated testing · CI/CD
+
+                    Professional Experience
+                    First Role — Example Ltd
+                    January 2021 – December 2023
+                    %s
+                    BOUNDARY ROLE — Next Employer
+                    January 2024 – Present
+                    - BOUNDARY FIRST BULLET delivered a reliable service.
+                    """.formatted(filler));
+
+            List<String> pages = pdfPageTexts(
+                    pdfExportService().export(document));
+            String boundaryPage = pages.stream()
+                    .filter(page -> page.contains("BOUNDARY ROLE")
+                            || page.contains("BOUNDARY FIRST BULLET"))
+                    .findFirst()
+                    .orElseThrow();
+
+            assertTrue(boundaryPage.contains("BOUNDARY ROLE"),
+                    "Dropped boundary role with filler count " + fillerCount);
+            assertTrue(boundaryPage.contains("January 2024"),
+                    "Orphaned boundary date with filler count " + fillerCount);
+            assertTrue(boundaryPage.contains("BOUNDARY FIRST BULLET"),
+                    "Orphaned boundary bullet with filler count " + fillerCount);
+        }
+    }
+
+    @Test
+    void docxEmitsPaginationControlsForHeadingsBulletsAndClosing()
+            throws Exception {
+        GeneratedDocumentResponse document = document().content("""
+                Tailored CV
+
+                Alex Candidate
+
+                Selected Projects
+
+                Job Seeker Copilot — Founder
+                May 2026 – Present
+                - Delivered a working platform.
+                """);
+
+        try (XWPFDocument docx = new XWPFDocument(
+                new ByteArrayInputStream(docxExportService().export(document)))) {
+            XWPFParagraph heading = docx.getParagraphs().stream()
+                    .filter(paragraph -> "Selected Projects".equals(paragraph.getText()))
+                    .findFirst()
+                    .orElseThrow();
+            XWPFParagraph bullet = docx.getParagraphs().stream()
+                    .filter(paragraph -> "Delivered a working platform.".equals(paragraph.getText()))
+                    .findFirst()
+                    .orElseThrow();
+
+            assertTrue(heading.isKeepNext());
+            assertTrue(heading.getCTP().getPPr().isSetKeepLines());
+            assertTrue(bullet.getCTP().getPPr().isSetKeepLines());
+        }
+    }
+
     private GeneratedDocumentResponse document() {
         return new GeneratedDocumentResponse()
                 .id(UUID.randomUUID())
@@ -658,6 +879,20 @@ class ExportRendererTest {
                 text.append(extractor.getTextFromPage(page)).append('\n');
             }
             return text.toString();
+        } finally {
+            reader.close();
+        }
+    }
+
+    private List<String> pdfPageTexts(byte[] bytes) throws Exception {
+        PdfReader reader = new PdfReader(bytes);
+        try {
+            PdfTextExtractor extractor = new PdfTextExtractor(reader);
+            java.util.ArrayList<String> pages = new java.util.ArrayList<>();
+            for (int page = 1; page <= reader.getNumberOfPages(); page++) {
+                pages.add(extractor.getTextFromPage(page));
+            }
+            return List.copyOf(pages);
         } finally {
             reader.close();
         }

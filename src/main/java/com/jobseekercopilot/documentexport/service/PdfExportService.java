@@ -82,6 +82,12 @@ public class PdfExportService {
             for (int index = 0; index < blocks.size();) {
                 session.checkDeadline();
                 DocumentTemplate.Block block = blocks.get(index);
+                if (index == 0 || !blocks.get(index - 1).keepWithNext()) {
+                    if (block.keepWithNext()) {
+                        cursor.ensureMinimumRemaining(150);
+                    }
+                    cursor.ensureFits(keepChainParagraphs(blocks, index));
+                }
                 if (block.style() == DocumentTemplate.BlockStyle.BULLET) {
                     PdfStructureElement listStructure =
                             new PdfStructureElement(
@@ -96,7 +102,8 @@ public class PdfExportService {
                                         blocks.get(index).text()),
                                 new PdfStructureElement(
                                         listStructure,
-                                        PdfName.LI));
+                                        PdfName.LI),
+                                blocks.get(index).keepTogether());
                         index++;
                     }
                 } else {
@@ -145,45 +152,87 @@ public class PdfExportService {
             case TITLE -> cursor.add(
                     titleParagraph(block.text()),
                     new PdfStructureElement(
-                            documentStructure,
-                            PdfName.H1));
+                            documentStructure, PdfName.H1),
+                    block.keepTogether());
             case SUBTITLE -> cursor.add(
                     subtitleParagraph(block.text()),
                     new PdfStructureElement(
-                            documentStructure,
-                            PdfName.P));
+                            documentStructure, PdfName.P),
+                    block.keepTogether());
             case CONTACT -> cursor.add(
                     contactParagraph(block.text()),
                     new PdfStructureElement(
-                            documentStructure,
-                            PdfName.P));
+                            documentStructure, PdfName.P),
+                    block.keepTogether());
             case ACCENT_LINE -> cursor.addAccentLine();
             case SECTION_HEADING -> cursor.add(
                     sectionHeadingParagraph(block.text()),
                     new PdfStructureElement(
-                            documentStructure,
-                            PdfName.H2));
+                            documentStructure, PdfName.H2),
+                    block.keepTogether());
             case ROLE_HEADING -> cursor.add(
                     roleHeadingParagraph(block.text()),
                     new PdfStructureElement(
-                            documentStructure,
-                            PdfName.H3));
+                            documentStructure, PdfName.H3),
+                    block.keepTogether());
+            case ENTRY_META -> cursor.add(
+                    entryMetaParagraph(block.text()),
+                    new PdfStructureElement(
+                            documentStructure, PdfName.P),
+                    block.keepTogether());
+            case SKILLS -> cursor.add(
+                    skillsParagraph(block.text()),
+                    new PdfStructureElement(
+                            documentStructure, PdfName.P),
+                    block.keepTogether());
             case BULLET -> cursor.add(
                     bulletParagraph(block.text()),
                     new PdfStructureElement(
                             new PdfStructureElement(
                                     documentStructure,
-                                    PdfName.L),
-                            PdfName.LI));
-            case PARAGRAPH -> cursor.add(
+                                    PdfName.L), PdfName.LI),
+                    block.keepTogether());
+            case PARAGRAPH, SIGN_OFF -> cursor.add(
                     bodyParagraph(block.text()),
                     new PdfStructureElement(
-                            documentStructure,
-                            PdfName.P));
+                            documentStructure, PdfName.P),
+                    block.keepTogether());
             case FOOTER -> {
                 // Footer is supplied by the PDF page event so every page is consistent.
             }
         }
+    }
+
+    private List<Paragraph> keepChainParagraphs(
+            List<DocumentTemplate.Block> blocks,
+            int start) {
+        java.util.ArrayList<Paragraph> paragraphs = new java.util.ArrayList<>();
+        for (int index = start; index < blocks.size(); index++) {
+            DocumentTemplate.Block block = blocks.get(index);
+            Paragraph paragraph = paragraphFor(block);
+            if (paragraph != null) {
+                paragraphs.add(paragraph);
+            }
+            if (!block.keepWithNext()) {
+                break;
+            }
+        }
+        return List.copyOf(paragraphs);
+    }
+
+    private Paragraph paragraphFor(DocumentTemplate.Block block) {
+        return switch (block.style()) {
+            case TITLE -> titleParagraph(block.text());
+            case SUBTITLE -> subtitleParagraph(block.text());
+            case CONTACT -> contactParagraph(block.text());
+            case SECTION_HEADING -> sectionHeadingParagraph(block.text());
+            case ROLE_HEADING -> roleHeadingParagraph(block.text());
+            case ENTRY_META -> entryMetaParagraph(block.text());
+            case SKILLS -> skillsParagraph(block.text());
+            case PARAGRAPH, SIGN_OFF -> bodyParagraph(block.text());
+            case BULLET -> bulletParagraph(block.text());
+            case ACCENT_LINE, FOOTER -> null;
+        };
     }
 
     private Paragraph titleParagraph(String title) {
@@ -222,8 +271,23 @@ public class PdfExportService {
     private Paragraph roleHeadingParagraph(String text) {
         Font font = font(11, Font.BOLD, DARK_TEXT);
         Paragraph paragraph = paragraph(text, font);
-        paragraph.setSpacingBefore(6);
-        paragraph.setSpacingAfter(3);
+        paragraph.setSpacingBefore(8);
+        paragraph.setSpacingAfter(2);
+        return paragraph;
+    }
+
+    private Paragraph entryMetaParagraph(String text) {
+        Font font = font(9, Font.NORMAL, MUTED_TEXT);
+        Paragraph paragraph = paragraph(text, font);
+        paragraph.setSpacingAfter(4);
+        return paragraph;
+    }
+
+    private Paragraph skillsParagraph(String text) {
+        Font font = font(10, Font.NORMAL, DARK_TEXT);
+        Paragraph paragraph = paragraph(text, font);
+        paragraph.setLeading(15);
+        paragraph.setSpacingAfter(7);
         return paragraph;
     }
 
@@ -328,9 +392,17 @@ public class PdfExportService {
 
         private void add(
                 Paragraph paragraph,
-                PdfStructureElement structure)
+                PdfStructureElement structure,
+                boolean keepTogether)
                 throws DocumentException {
-            ensureSpace();
+            boolean canKeepTogether = keepTogether
+                    && fits(List.of(paragraph), TOP);
+            paragraph.setKeepTogether(canKeepTogether);
+            if (canKeepTogether) {
+                ensureFits(List.of(paragraph));
+            } else {
+                ensureSpace();
+            }
             ColumnText column = new ColumnText(
                     writer.getDirectContent());
             column.addElement(paragraph);
@@ -355,6 +427,51 @@ public class PdfExportService {
             }
         }
 
+        private void ensureFits(List<Paragraph> paragraphs) {
+            if (paragraphs == null || paragraphs.isEmpty()) {
+                ensureSpace();
+                return;
+            }
+            if (!fits(paragraphs, y) && fits(paragraphs, TOP)) {
+                newPage();
+            }
+        }
+
+        private boolean fits(List<Paragraph> paragraphs, float top) {
+            Layout fullPage = layout(paragraphs, TOP);
+            if (ColumnText.hasMoreText(fullPage.status())) {
+                return false;
+            }
+            Layout available = top == TOP
+                    ? fullPage
+                    : layout(paragraphs, top);
+            return !ColumnText.hasMoreText(available.status())
+                    && available.linesWritten() >= fullPage.linesWritten();
+        }
+
+        private Layout layout(List<Paragraph> paragraphs, float top) {
+            ColumnText measurement = new ColumnText(
+                    writer.getDirectContent());
+            for (Paragraph paragraph : paragraphs) {
+                measurement.addElement(new Paragraph(paragraph));
+            }
+            measurement.setSimpleColumn(
+                    LEFT,
+                    BOTTOM,
+                    RIGHT,
+                    top);
+            try {
+                int status = measurement.go(true);
+                return new Layout(status, measurement.getLinesWritten());
+            } catch (DocumentException exception) {
+                throw new DocumentExportException(
+                        "Failed to measure PDF content", exception);
+            }
+        }
+
+        private record Layout(int status, int linesWritten) {
+        }
+
         private void addAccentLine() {
             if (y < BOTTOM + 24) {
                 newPage();
@@ -372,6 +489,12 @@ public class PdfExportService {
 
         private void ensureSpace() {
             if (y < BOTTOM + 24) {
+                newPage();
+            }
+        }
+
+        private void ensureMinimumRemaining(float points) {
+            if (y - BOTTOM < points) {
                 newPage();
             }
         }
