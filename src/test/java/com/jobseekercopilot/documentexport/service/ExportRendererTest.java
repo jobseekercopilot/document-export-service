@@ -268,6 +268,8 @@ class ExportRendererTest {
         try (XWPFDocument docx = new XWPFDocument(
                 new ByteArrayInputStream(docxBytes))) {
             docxText = bodyText(docx);
+            assertTrue(docx.getParagraphs().stream()
+                    .noneMatch(XWPFParagraph::isPageBreak));
             assertEquals(
                     expectedHeadings,
                     docx.getParagraphs().stream()
@@ -385,6 +387,8 @@ class ExportRendererTest {
         try (XWPFDocument docx = new XWPFDocument(
                 new ByteArrayInputStream(docxBytes))) {
             docxText = bodyText(docx);
+            assertTrue(docx.getParagraphs().stream()
+                    .noneMatch(XWPFParagraph::isPageBreak));
             assertEquals(
                     evidenceItems,
                     docx.getParagraphs().stream()
@@ -662,6 +666,67 @@ class ExportRendererTest {
         assertEquals(1, pages.size());
         assertTrue(pages.get(0).contains("Education and Qualifications"));
         assertTrue(pages.get(0).contains("BSc Computer Science"));
+        try (XWPFDocument docx = new XWPFDocument(
+                new ByteArrayInputStream(docxExportService().export(document)))) {
+            assertTrue(docx.getParagraphs().stream()
+                    .noneMatch(XWPFParagraph::isPageBreak));
+        }
+    }
+
+    @Test
+    void sparseTwoPageCvUsesTheSameSemanticBoundaryAcrossFormats()
+            throws Exception {
+        GeneratedDocumentResponse document = sparseTwoPageCv();
+
+        List<String> naturalPages = pdfPageTexts(
+                pdfExportServiceWithoutSemanticBreaks().export(document));
+        assertEquals(2, naturalPages.size());
+        assertTrue(naturalPages.get(0).contains("Selected Projects"));
+        assertTrue(!naturalPages.get(1).contains("Selected Projects"));
+        assertTrue(naturalPages.get(1).contains(
+                "Education and Qualifications"));
+
+        List<String> pages = pdfPageTexts(pdfExportService().export(document));
+
+        assertEquals(2, pages.size());
+        assertTrue(pages.get(0).contains("Professional Experience"));
+        assertTrue(!pages.get(0).contains("Selected Projects"));
+        assertTrue(pages.get(1).contains("Selected Projects"));
+        assertTrue(pages.get(1).contains("Application Delivery Platform"));
+        assertTrue(pages.get(1).contains("Education and Qualifications"));
+        assertTrue(pages.get(1).contains("BSc Computer Science"));
+
+        try (XWPFDocument docx = new XWPFDocument(
+                new ByteArrayInputStream(docxExportService().export(document)))) {
+            List<XWPFParagraph> pageBreaks = docx.getParagraphs().stream()
+                    .filter(XWPFParagraph::isPageBreak)
+                    .toList();
+            assertEquals(1, pageBreaks.size());
+            assertEquals("Selected Projects", pageBreaks.get(0).getText());
+        }
+    }
+
+    @Test
+    void naturallyBalancedTwoPageCvDoesNotReceiveAForcedBreak()
+            throws Exception {
+        GeneratedDocumentResponse document = sparseTwoPageCv();
+        String additionalEducation = IntStream.rangeClosed(1, 8)
+                .mapToObj(index -> ("- Additional accredited module %02d in "
+                        + "software delivery and collaborative engineering.")
+                        .formatted(index))
+                .collect(Collectors.joining("\n"));
+        document.content(document.getContent()
+                + "\n"
+                + additionalEducation);
+
+        assertEquals(
+                2,
+                pdfPageTexts(pdfExportService().export(document)).size());
+        try (XWPFDocument docx = new XWPFDocument(
+                new ByteArrayInputStream(docxExportService().export(document)))) {
+            assertTrue(docx.getParagraphs().stream()
+                    .noneMatch(XWPFParagraph::isPageBreak));
+        }
     }
 
     @Test
@@ -718,14 +783,41 @@ class ExportRendererTest {
 
     private DocxExportService docxExportService() {
         DocumentExportLimits limits = new DocumentExportLimits();
-        return new DocxExportService(new RenderBudget(limits));
+        ExportFontProvider fontProvider = new ExportFontProvider(limits);
+        PdfParagraphFactory paragraphs =
+                new PdfParagraphFactory(fontProvider);
+        return new DocxExportService(
+                new RenderBudget(limits),
+                new CvPaginationPlanner(paragraphs));
     }
 
     private PdfExportService pdfExportService() {
         DocumentExportLimits limits = new DocumentExportLimits();
+        ExportFontProvider fontProvider = new ExportFontProvider(limits);
+        PdfParagraphFactory paragraphs =
+                new PdfParagraphFactory(fontProvider);
         return new PdfExportService(
                 new RenderBudget(limits),
-                new ExportFontProvider(limits));
+                paragraphs,
+                new CvPaginationPlanner(paragraphs));
+    }
+
+    private PdfExportService pdfExportServiceWithoutSemanticBreaks() {
+        DocumentExportLimits limits = new DocumentExportLimits();
+        ExportFontProvider fontProvider = new ExportFontProvider(limits);
+        PdfParagraphFactory paragraphs =
+                new PdfParagraphFactory(fontProvider);
+        CvPaginationPlanner disabledPlanner =
+                new CvPaginationPlanner(paragraphs) {
+                    @Override
+                    public Plan plan(DocumentTemplate template) {
+                        return Plan.none();
+                    }
+                };
+        return new PdfExportService(
+                new RenderBudget(limits),
+                paragraphs,
+                disabledPlanner);
     }
 
     private GeneratedDocumentResponse coverLetter() {
@@ -827,6 +919,60 @@ class ExportRendererTest {
 
                         Professional Profile
                         Builds reliable services with governed delivery.
+                        """);
+    }
+
+    private GeneratedDocumentResponse sparseTwoPageCv() {
+        return new GeneratedDocumentResponse()
+                .id(UUID.fromString(
+                        "10000000-0000-0000-0000-000000000004"))
+                .documentType(
+                        GeneratedDocumentResponse.DocumentTypeEnum.CV)
+                .title("Tailored CV")
+                .content("""
+                        Tailored CV
+
+                        Alex Candidate
+                        alex@example.test
+                        London
+
+                        Professional Profile
+                        Full-stack software developer delivering reliable Java services and accessible Angular interfaces across collaborative, safety-conscious product teams.
+
+                        Technical Skills
+                        Java · Spring Boot · Angular · TypeScript · REST APIs · Microservices · Docker · AWS · PostgreSQL · Automated Testing · Playwright · CI/CD
+
+                        Professional Experience
+                        Full-Stack Software Developer — Resonate Systems
+                        January 2021 – August 2024
+                        - Delivered tested Java and Spring microservices with Angular interfaces while collaborating across engineering and product disciplines.
+                        - Added unit, integration and contract checks to support dependable releases of safety-conscious operational software.
+                        - Mentored new engineers and supported apprentices building a substantial Angular training application.
+
+                        Website Administrator — Example Digital
+                        August 2024 – January 2025
+                        - Improved client websites, analysed lead-generation data and communicated clearly with customers about practical changes.
+                        - Used structured sales reporting to identify useful follow-up actions while keeping client records accurate.
+
+                        Community Coordinator — Example Community Centre
+                        December 2024 – September 2025
+                        - Coordinated services, maintained accurate records and supported residents through dependable operational routines.
+
+                        Selected Projects
+                        Application Delivery Platform — Lead developer
+                        May 2025 – Present
+                        - Designed a multi-service Java and Angular product with provider integrations, document generation and end-to-end tests.
+                        - Owned API contracts, containerised development and cross-service quality decisions from discovery through pre-beta testing.
+
+                        Codecademy Docs — Open-source contributor
+                        December 2021
+                        - Authored educational Java material explaining five established creational design patterns for software learners.
+
+                        Education and Qualifications
+                        - AWS re/Start Programme, July 2021
+                        - AWS Certified Cloud Practitioner, July 2021
+                        - BSc Computer Science, University of Birmingham, June 2021
+                        - Diploma in Software Development, Example College, June 2019
                         """);
     }
 

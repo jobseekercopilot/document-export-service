@@ -29,9 +29,13 @@ public class DocxExportService {
     private static final String ACCENT_BLUE = "2563EB";
 
     private final RenderBudget renderBudget;
+    private final CvPaginationPlanner paginationPlanner;
 
-    public DocxExportService(RenderBudget renderBudget) {
+    public DocxExportService(
+            RenderBudget renderBudget,
+            CvPaginationPlanner paginationPlanner) {
         this.renderBudget = renderBudget;
+        this.paginationPlanner = paginationPlanner;
     }
 
     public byte[] export(GeneratedDocumentResponse document) {
@@ -44,9 +48,15 @@ public class DocxExportService {
             configurePage(docx);
             addFooter(docx);
             BigInteger bulletNumbering = configureBulletNumbering(docx);
-            for (DocumentTemplate.Block block : template.blocks()) {
+            CvPaginationPlanner.Plan paginationPlan =
+                    paginationPlanner.plan(template);
+            for (int index = 0; index < template.blocks().size(); index++) {
                 session.checkDeadline();
-                addBlock(docx, block, bulletNumbering);
+                addBlock(
+                        docx,
+                        template.blocks().get(index),
+                        bulletNumbering,
+                        paginationPlan.breaksBefore(index));
             }
             docx.write(output);
             session.checkDeadline();
@@ -59,7 +69,8 @@ public class DocxExportService {
     private void addBlock(
             XWPFDocument docx,
             DocumentTemplate.Block block,
-            BigInteger bulletNumbering) {
+            BigInteger bulletNumbering,
+            boolean pageBreakBefore) {
         int paragraphCount = docx.getParagraphs().size();
         switch (block.style()) {
             case TITLE -> addTitle(docx, block.text());
@@ -82,6 +93,9 @@ public class DocxExportService {
         if (docx.getParagraphs().size() > paragraphCount) {
             XWPFParagraph paragraph = docx.getParagraphs()
                     .get(docx.getParagraphs().size() - 1);
+            if (pageBreakBefore) {
+                paragraph.setPageBreak(true);
+            }
             if (block.keepWithNext()) {
                 paragraph.setKeepNext(true);
             }
