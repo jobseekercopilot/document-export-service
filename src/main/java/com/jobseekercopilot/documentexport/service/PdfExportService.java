@@ -83,9 +83,6 @@ public class PdfExportService {
                 session.checkDeadline();
                 DocumentTemplate.Block block = blocks.get(index);
                 if (index == 0 || !blocks.get(index - 1).keepWithNext()) {
-                    if (block.keepWithNext()) {
-                        cursor.ensureMinimumRemaining(150);
-                    }
                     cursor.ensureFits(keepChainParagraphs(blocks, index));
                 }
                 if (block.style() == DocumentTemplate.BlockStyle.BULLET) {
@@ -489,12 +486,6 @@ public class PdfExportService {
 
         private void ensureSpace() {
             if (y < BOTTOM + 24) {
-                newPage();
-            }
-        }
-
-        private void ensureMinimumRemaining(float points) {
-            if (y - BOTTOM < points) {
                 newPage();
             }
         }
