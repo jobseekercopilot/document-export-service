@@ -107,6 +107,33 @@ class DocumentExportControllerTest {
     }
 
     @Test
+    void invalidProfessionalContactFailsBeforeServiceCall() throws Exception {
+        UUID documentId = UUID.randomUUID();
+
+        mockMvc.perform(post(
+                        "/api/v1/document-exports/documents/{documentId}",
+                        documentId)
+                        .header(
+                                DocumentExportIdentityFilter.SERVICE_TOKEN_HEADER,
+                                GATEWAY_TOKEN)
+                        .header(DocumentExportIdentityFilter.OWNER_HEADER, OWNER)
+                        .header("Idempotency-Key", "invalid-contact-operation")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "formats":["PDF"],
+                                  "professionalContact":{
+                                    "phone":"not-a-phone",
+                                    "links":[{"label":"Portfolio","url":"http://example.test"}]
+                                  }
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(documentExportService);
+    }
+
+    @Test
     void replacementWorkflowKeyIsForwardedToReplaySafeExport()
             throws Exception {
         UUID documentId = UUID.randomUUID();

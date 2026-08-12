@@ -1,5 +1,6 @@
 package com.jobseekercopilot.documentexport.service;
 
+import com.jobseekercopilot.documentexport.dto.ProfessionalContact;
 import com.jobseekercopilot.documentexport.exception.DocumentExportException;
 import com.jobseekercopilot.generated.documentstoreservice.model.GeneratedDocumentResponse;
 import com.lowagie.text.Document;
@@ -51,7 +52,15 @@ public class PdfExportService {
     }
 
     public byte[] export(GeneratedDocumentResponse generatedDocument) {
-        DocumentTemplate template = DocumentTemplate.from(generatedDocument);
+        return export(generatedDocument, null);
+    }
+
+    public byte[] export(
+            GeneratedDocumentResponse generatedDocument,
+            ProfessionalContact professionalContact) {
+        DocumentTemplate template = DocumentTemplate.from(
+                generatedDocument,
+                professionalContact);
         RenderBudget.Session session =
                 renderBudget.start(generatedDocument, template);
         try (BoundedByteArrayOutputStream output = session.output()) {
@@ -162,7 +171,7 @@ public class PdfExportService {
                             documentStructure, PdfName.P),
                     block.keepTogether());
             case CONTACT -> cursor.add(
-                    paragraphs.contact(block.text()),
+                    paragraphs.contact(block),
                     new PdfStructureElement(
                             documentStructure, PdfName.P),
                     block.keepTogether());

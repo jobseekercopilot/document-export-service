@@ -24,7 +24,7 @@ class PdfParagraphFactory {
         return switch (block.style()) {
             case TITLE -> title(block.text());
             case SUBTITLE -> subtitle(block.text());
-            case CONTACT -> contact(block.text());
+            case CONTACT -> contact(block);
             case SECTION_HEADING -> sectionHeading(block.text());
             case ROLE_HEADING -> roleHeading(block.text());
             case ENTRY_META -> entryMeta(block.text());
@@ -54,10 +54,11 @@ class PdfParagraphFactory {
         return paragraph;
     }
 
-    Paragraph contact(String text) {
-        Paragraph paragraph = paragraph(
-                text,
-                font(9, Font.NORMAL, MUTED_TEXT));
+    Paragraph contact(DocumentTemplate.Block block) {
+        Font font = font(9, Font.NORMAL, MUTED_TEXT);
+        Paragraph paragraph = block.inlineSegments().isEmpty()
+                ? paragraph(block.text(), font)
+                : paragraph(block.inlineSegments(), font);
         paragraph.setSpacingAfter(9);
         return paragraph;
     }
@@ -129,6 +130,27 @@ class PdfParagraphFactory {
         Paragraph paragraph = new Paragraph();
         for (AccessibleText.Segment segment
                 : AccessibleText.segments(text)) {
+            if (segment.isLink()) {
+                Font linkFont = new Font(
+                        fontProvider.pdfFont(),
+                        font.getSize(),
+                        font.getStyle() | Font.UNDERLINE,
+                        ACCENT_BLUE);
+                Anchor anchor = new Anchor(segment.text(), linkFont);
+                anchor.setReference(segment.url());
+                paragraph.add(anchor);
+            } else {
+                paragraph.add(new Phrase(segment.text(), font));
+            }
+        }
+        return paragraph;
+    }
+
+    private Paragraph paragraph(
+            java.util.List<DocumentTemplate.InlineSegment> segments,
+            Font font) {
+        Paragraph paragraph = new Paragraph();
+        for (DocumentTemplate.InlineSegment segment : segments) {
             if (segment.isLink()) {
                 Font linkFont = new Font(
                         fontProvider.pdfFont(),

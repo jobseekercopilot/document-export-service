@@ -1,8 +1,11 @@
 package com.jobseekercopilot.documentexport.service;
 
+import com.jobseekercopilot.documentexport.dto.ProfessionalContact;
+import com.jobseekercopilot.documentexport.dto.ProfessionalLink;
 import com.jobseekercopilot.generated.documentstoreservice.model.GeneratedDocumentResponse;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -65,6 +68,12 @@ public class DocumentTemplate {
     }
 
     public static DocumentTemplate from(GeneratedDocumentResponse document) {
+        return from(document, null);
+    }
+
+    public static DocumentTemplate from(
+            GeneratedDocumentResponse document,
+            ProfessionalContact professionalContact) {
         DocumentKind kind = DocumentKind.from(document);
         DocumentMetadata metadata = DocumentMetadata.from(document);
         String title = title(metadata, kind);
@@ -79,8 +88,9 @@ public class DocumentTemplate {
         if (!header.subtitle().isBlank()) {
             blocks.add(new Block(BlockStyle.SUBTITLE, header.subtitle(), true, true));
         }
-        if (!header.contact().isBlank()) {
-            blocks.add(new Block(BlockStyle.CONTACT, header.contact(), true, true));
+        Block contact = contactBlock(header.contact(), professionalContact);
+        if (!contact.text().isBlank()) {
+            blocks.add(contact);
         }
         blocks.add(new Block(BlockStyle.ACCENT_LINE, "", false, true));
 
@@ -96,6 +106,62 @@ public class DocumentTemplate {
                 kind,
                 metadata,
                 blocks);
+    }
+
+    private static Block contactBlock(
+            String generatedContact,
+            ProfessionalContact professionalContact) {
+        List<InlineSegment> segments = new ArrayList<>();
+        Set<String> renderedUrls = new LinkedHashSet<>();
+        String existing = generatedContact == null ? "" : generatedContact.strip();
+        if (!existing.isBlank()) {
+            for (AccessibleText.Segment segment : AccessibleText.segments(existing)) {
+                segments.add(new InlineSegment(segment.text(), segment.url()));
+                if (segment.url() != null) {
+                    renderedUrls.add(segment.url());
+                }
+            }
+        }
+
+        if (professionalContact != null) {
+            String phone = professionalContact.getPhone() == null
+                    ? ""
+                    : professionalContact.getPhone().strip();
+            if (!phone.isBlank() && !existing.contains(phone)) {
+                appendContactSeparator(segments);
+                segments.add(new InlineSegment(phone, null));
+            }
+            for (ProfessionalLink link : professionalContact.getLinks() == null
+                    ? List.<ProfessionalLink>of()
+                    : professionalContact.getLinks()) {
+                if (link == null || link.getLabel() == null || link.getUrl() == null) {
+                    continue;
+                }
+                String label = link.getLabel().strip();
+                String url = link.getUrl().strip();
+                if (label.isBlank()
+                        || !AccessibleText.isSafeHttpsLink(url)
+                        || !renderedUrls.add(url)) {
+                    continue;
+                }
+                appendContactSeparator(segments);
+                segments.add(new InlineSegment(
+                        label.endsWith(":") ? label + " " : label + ": ",
+                        null));
+                segments.add(new InlineSegment(url, url));
+            }
+        }
+
+        String text = segments.stream()
+                .map(InlineSegment::text)
+                .collect(java.util.stream.Collectors.joining());
+        return new Block(BlockStyle.CONTACT, text, true, true, segments);
+    }
+
+    private static void appendContactSeparator(List<InlineSegment> segments) {
+        if (!segments.isEmpty()) {
+            segments.add(new InlineSegment(" | ", null));
+        }
     }
 
     public DocumentKind kind() {
@@ -316,9 +382,18 @@ public class DocumentTemplate {
             BlockStyle style,
             String text,
             boolean keepWithNext,
-            boolean keepTogether) {
+            boolean keepTogether,
+            List<InlineSegment> inlineSegments) {
         public Block(BlockStyle style, String text) {
-            this(style, text, false, false);
+            this(style, text, false, false, List.of());
+        }
+
+        public Block(
+                BlockStyle style,
+                String text,
+                boolean keepWithNext,
+                boolean keepTogether) {
+            this(style, text, keepWithNext, keepTogether, List.of());
         }
 
         public Block {
@@ -327,10 +402,23 @@ public class DocumentTemplate {
                         "Render block style is required");
             }
             text = text == null ? "" : text;
+            inlineSegments = inlineSegments == null
+                    ? List.of()
+                    : List.copyOf(inlineSegments);
         }
 
         Block withKeepWithNext(boolean value) {
-            return new Block(style, text, value, keepTogether);
+            return new Block(style, text, value, keepTogether, inlineSegments);
+        }
+    }
+
+    public record InlineSegment(String text, String url) {
+        public InlineSegment {
+            text = text == null ? "" : text;
+        }
+
+        boolean isLink() {
+            return url != null;
         }
     }
 

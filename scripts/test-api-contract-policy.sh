@@ -77,6 +77,19 @@ if "$repository_root/scripts/verify-api-contract.sh" "$temporary_dir/service-ide
     exit 1
 fi
 
+copy_contract "$temporary_dir/professional-contact"
+jq 'del(.components.schemas.DocumentExportRequest.properties.professionalContact)' \
+    "$temporary_dir/professional-contact/openapi.json" \
+    > "$temporary_dir/professional-contact/changed.json"
+mv "$temporary_dir/professional-contact/changed.json" \
+   "$temporary_dir/professional-contact/openapi.json"
+(cd "$temporary_dir/professional-contact" && sha256sum openapi.json > SHA256SUMS)
+if "$repository_root/scripts/verify-api-contract.sh" \
+        "$temporary_dir/professional-contact" >/dev/null 2>&1; then
+    echo "API contract policy negative test accepted removal of professional contact" >&2
+    exit 1
+fi
+
 copy_contract "$temporary_dir/owner-context"
 jq 'del(
     .paths["/api/v1/document-exports/documents/{documentId}"].post.parameters[]
