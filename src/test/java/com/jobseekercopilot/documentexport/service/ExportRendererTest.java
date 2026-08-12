@@ -619,6 +619,52 @@ class ExportRendererTest {
     }
 
     @Test
+    void cvDoesNotCreateASparseSecondPageForAShortFinalSection()
+            throws Exception {
+        GeneratedDocumentResponse document = document().content("""
+                Tailored CV
+
+                Alex Candidate
+                alex@example.com
+                London
+
+                Professional Profile
+                Software Developer with experience in REST APIs, Spring Boot and Java. Designs microservices, builds accessible Angular features and works with product teams to deliver reliable releases.
+
+                Technical Skills
+                REST APIs · Spring Boot · Java · Angular · Microservices · TypeScript · Automated Testing · Docker · AWS · CI/CD · PostgreSQL
+
+                Professional Experience
+                Software Developer — BrightTech Solutions
+                July 2021 – Present
+                - Designs Java and Spring Boot microservices, builds Angular features and reviews code.
+                - Reduced deployment time and introduced contract testing across six services.
+                - Develops accessible cloud products used by operations teams.
+
+                Software Engineering Intern — CodeBridge Ltd
+                June 2020 – August 2020
+                - Delivered TypeScript components and API integration tests in an Agile team.
+                - Automated a repetitive regression check and supported sprint demonstrations.
+
+                Selected Projects
+                Application Delivery Platform — Lead developer
+                January 2024 – June 2025
+                Led a five-person project that joined Java services, Angular workflows and deployment telemetry into one secure delivery platform.
+                - Delivered the first release on schedule with accessible keyboard workflows and automated tests.
+
+                Education and Qualifications
+                - AWS Certified Developer – Associate, Amazon Web Services, April 2025
+                - BSc Computer Science, University of Birmingham, June 2021
+                """);
+
+        List<String> pages = pdfPageTexts(pdfExportService().export(document));
+
+        assertEquals(1, pages.size());
+        assertTrue(pages.get(0).contains("Education and Qualifications"));
+        assertTrue(pages.get(0).contains("BSc Computer Science"));
+    }
+
+    @Test
     void docxEmitsPaginationControlsForHeadingsBulletsAndClosing()
             throws Exception {
         GeneratedDocumentResponse document = document().content("""
