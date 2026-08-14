@@ -49,7 +49,7 @@ final class AccessibleText {
         return List.copyOf(segments);
     }
 
-    private static boolean isSafeHttpsLink(String candidate) {
+    static boolean isSafeHttpsLink(String candidate) {
         try {
             URI uri = new URI(candidate);
             return "https".equalsIgnoreCase(uri.getScheme())

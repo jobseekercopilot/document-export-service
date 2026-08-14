@@ -1,5 +1,6 @@
 package com.jobseekercopilot.documentexport.service;
 
+import com.jobseekercopilot.documentexport.dto.ProfessionalContact;
 import com.jobseekercopilot.documentexport.exception.DocumentExportException;
 import com.jobseekercopilot.generated.documentstoreservice.model.GeneratedDocumentResponse;
 import org.apache.poi.xwpf.model.XWPFHeaderFooterPolicy;
@@ -29,13 +30,25 @@ public class DocxExportService {
     private static final String ACCENT_BLUE = "2563EB";
 
     private final RenderBudget renderBudget;
+    private final CvPaginationPlanner paginationPlanner;
 
-    public DocxExportService(RenderBudget renderBudget) {
+    public DocxExportService(
+            RenderBudget renderBudget,
+            CvPaginationPlanner paginationPlanner) {
         this.renderBudget = renderBudget;
+        this.paginationPlanner = paginationPlanner;
     }
 
     public byte[] export(GeneratedDocumentResponse document) {
-        DocumentTemplate template = DocumentTemplate.from(document);
+        return export(document, null);
+    }
+
+    public byte[] export(
+            GeneratedDocumentResponse document,
+            ProfessionalContact professionalContact) {
+        DocumentTemplate template = DocumentTemplate.from(
+                document,
+                professionalContact);
         RenderBudget.Session session =
                 renderBudget.start(document, template);
         try (XWPFDocument docx = new XWPFDocument();
@@ -44,9 +57,15 @@ public class DocxExportService {
             configurePage(docx);
             addFooter(docx);
             BigInteger bulletNumbering = configureBulletNumbering(docx);
-            for (DocumentTemplate.Block block : template.blocks()) {
+            CvPaginationPlanner.Plan paginationPlan =
+                    paginationPlanner.plan(template);
+            for (int index = 0; index < template.blocks().size(); index++) {
                 session.checkDeadline();
-                addBlock(docx, block, bulletNumbering);
+                addBlock(
+                        docx,
+                        template.blocks().get(index),
+                        bulletNumbering,
+                        paginationPlan.breaksBefore(index));
             }
             docx.write(output);
             session.checkDeadline();
@@ -59,12 +78,13 @@ public class DocxExportService {
     private void addBlock(
             XWPFDocument docx,
             DocumentTemplate.Block block,
-            BigInteger bulletNumbering) {
+            BigInteger bulletNumbering,
+            boolean pageBreakBefore) {
         int paragraphCount = docx.getParagraphs().size();
         switch (block.style()) {
             case TITLE -> addTitle(docx, block.text());
             case SUBTITLE -> addSubtitle(docx, block.text());
-            case CONTACT -> addContact(docx, block.text());
+            case CONTACT -> addContact(docx, block);
             case ACCENT_LINE -> addAccentLine(docx);
             case SECTION_HEADING -> addSectionHeading(docx, block.text());
             case ROLE_HEADING -> addRoleHeading(docx, block.text());
@@ -82,6 +102,9 @@ public class DocxExportService {
         if (docx.getParagraphs().size() > paragraphCount) {
             XWPFParagraph paragraph = docx.getParagraphs()
                     .get(docx.getParagraphs().size() - 1);
+            if (pageBreakBefore) {
+                paragraph.setPageBreak(true);
+            }
             if (block.keepWithNext()) {
                 paragraph.setKeepNext(true);
             }
@@ -180,11 +203,17 @@ public class DocxExportService {
         addTextRuns(paragraph, text, 11, false, MUTED_TEXT);
     }
 
-    private void addContact(XWPFDocument docx, String text) {
+    private void addContact(
+            XWPFDocument docx,
+            DocumentTemplate.Block block) {
         XWPFParagraph paragraph = docx.createParagraph();
         paragraph.setSpacingAfter(100);
         paragraph.setStyle("Normal");
-        addTextRuns(paragraph, text, 9, false, MUTED_TEXT);
+        if (block.inlineSegments().isEmpty()) {
+            addTextRuns(paragraph, block.text(), 9, false, MUTED_TEXT);
+        } else {
+            addInlineRuns(paragraph, block.inlineSegments(), 9, false, MUTED_TEXT);
+        }
     }
 
     private void addAccentLine(XWPFDocument docx) {
@@ -290,6 +319,26 @@ public class DocxExportService {
             if (segment.isLink()) {
                 XWPFHyperlinkRun link =
                         paragraph.createHyperlinkRun(segment.url());
+                applyFont(link, size, bold, ACCENT_BLUE);
+                link.setUnderline(UnderlinePatterns.SINGLE);
+                link.setText(segment.text());
+            } else {
+                XWPFRun run = paragraph.createRun();
+                applyFont(run, size, bold, color);
+                addTextWithBreaks(run, segment.text());
+            }
+        }
+    }
+
+    private void addInlineRuns(
+            XWPFParagraph paragraph,
+            java.util.List<DocumentTemplate.InlineSegment> segments,
+            int size,
+            boolean bold,
+            String color) {
+        for (DocumentTemplate.InlineSegment segment : segments) {
+            if (segment.isLink()) {
+                XWPFHyperlinkRun link = paragraph.createHyperlinkRun(segment.url());
                 applyFont(link, size, bold, ACCENT_BLUE);
                 link.setUnderline(UnderlinePatterns.SINGLE);
                 link.setText(segment.text());

@@ -6,7 +6,7 @@
 
     <groupId>com.jobseekercopilot.clients</groupId>
     <artifactId>document-export-service-client</artifactId>
-    <version>3.0.0-rev.2d6edd832027</version>
+    <version>3.1.0-rev.cda9a2af811b</version>
     <packaging>jar</packaging>
 
     <name>Job Seeker Copilot Document Export API Client</name>
@@ -25,9 +25,9 @@
         <jakarta-validation.version>3.0.2</jakarta-validation.version>
         <jobseekercopilot.contract.repository>jobseekercopilot/document-export-service</jobseekercopilot.contract.repository>
         <jobseekercopilot.contract.path>contracts/openapi.json</jobseekercopilot.contract.path>
-        <jobseekercopilot.contract.version>3.0.0</jobseekercopilot.contract.version>
-        <jobseekercopilot.contract.revision>2d6edd832027307bd5cf1777cfbedbcd322bc1e7</jobseekercopilot.contract.revision>
-        <jobseekercopilot.contract.sha256>17d37926cc6c9dedacb526e018577cb3c1aaf976fdcda24a588d541f9ec4f042</jobseekercopilot.contract.sha256>
+        <jobseekercopilot.contract.version>3.1.0</jobseekercopilot.contract.version>
+        <jobseekercopilot.contract.revision>cda9a2af811bafe99ecd686faab14db67f21ae32</jobseekercopilot.contract.revision>
+        <jobseekercopilot.contract.sha256>2848a72e78c2bfaa48ac5879e99528be0daaee6371cd6bd8a99c59e3131d585a</jobseekercopilot.contract.sha256>
     </properties>
 
     <dependencyManagement>

@@ -99,6 +99,7 @@ public class DocumentExportService {
             exports.add(exportAndSave(
                     document,
                     format,
+                    request.getProfessionalContact(),
                     documentOwner,
                     operationKey(operationKey, format.name().toLowerCase(Locale.ROOT))));
         }
@@ -212,13 +213,18 @@ public class DocumentExportService {
     private DocumentExportItem exportAndSave(
             GeneratedDocumentResponse document,
             ExportFormat format,
+            com.jobseekercopilot.documentexport.dto.ProfessionalContact professionalContact,
             String documentOwner,
             String idempotencyKey) {
         long startedAt = System.nanoTime();
         log.info("Document render started documentId={} format={}", document.getId(), format);
         byte[] bytes = switch (format) {
-            case DOCX -> docxExportService.export(document);
-            case PDF -> pdfExportService.export(document);
+            case DOCX -> professionalContact == null
+                    ? docxExportService.export(document)
+                    : docxExportService.export(document, professionalContact);
+            case PDF -> professionalContact == null
+                    ? pdfExportService.export(document)
+                    : pdfExportService.export(document, professionalContact);
         };
         log.info("Document render completed documentId={} format={} sizeBytes={} durationMs={}",
                 document.getId(),

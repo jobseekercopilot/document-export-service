@@ -57,14 +57,20 @@ class DocumentExportServiceTest {
     void setUp() {
         DocumentExportLimits limits = new DocumentExportLimits();
         RenderBudget renderBudget = new RenderBudget(limits);
+        ExportFontProvider fontProvider = new ExportFontProvider(limits);
+        PdfParagraphFactory paragraphs =
+                new PdfParagraphFactory(fontProvider);
+        CvPaginationPlanner paginationPlanner =
+                new CvPaginationPlanner(paragraphs);
         service = new DocumentExportService(
                 generatedDocumentsApi,
                 producerDocumentFilesApi,
                 readerDocumentFilesApi,
-                new DocxExportService(renderBudget),
+                new DocxExportService(renderBudget, paginationPlanner),
                 new PdfExportService(
                         renderBudget,
-                        new ExportFontProvider(limits)),
+                        paragraphs,
+                        paginationPlanner),
                 docxUploadInspector,
                 restTemplate);
         ReflectionTestUtils.setField(

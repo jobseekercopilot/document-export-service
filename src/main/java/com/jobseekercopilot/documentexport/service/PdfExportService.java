@@ -1,8 +1,8 @@
 package com.jobseekercopilot.documentexport.service;
 
+import com.jobseekercopilot.documentexport.dto.ProfessionalContact;
 import com.jobseekercopilot.documentexport.exception.DocumentExportException;
 import com.jobseekercopilot.generated.documentstoreservice.model.GeneratedDocumentResponse;
-import com.lowagie.text.Anchor;
 import com.lowagie.text.Document;
 import com.lowagie.text.DocumentException;
 import com.lowagie.text.Element;
@@ -23,35 +23,44 @@ import com.lowagie.text.pdf.PdfStructureElement;
 import com.lowagie.text.pdf.PdfWriter;
 import org.springframework.stereotype.Service;
 
-import java.awt.Color;
 import java.util.List;
 
 @Service
 public class PdfExportService {
-    private static final Color DARK_TEXT = new Color(17, 24, 39);
-    private static final Color MUTED_TEXT = new Color(75, 85, 99);
-    private static final Color ACCENT_BLUE = new Color(37, 99, 235);
+    private static final java.awt.Color ACCENT_BLUE =
+            new java.awt.Color(37, 99, 235);
     private static final PdfName ARTIFACT =
             new PdfName("Artifact");
     private static final float PAGE_WIDTH = 595;
     private static final float PAGE_HEIGHT = 842;
-    private static final float LEFT = 50;
-    private static final float RIGHT = PAGE_WIDTH - 50;
-    private static final float TOP = PAGE_HEIGHT - 50;
-    private static final float BOTTOM = 58;
+    static final float LEFT = 50;
+    static final float RIGHT = PAGE_WIDTH - 50;
+    static final float TOP = PAGE_HEIGHT - 50;
+    static final float BOTTOM = 58;
 
     private final RenderBudget renderBudget;
-    private final ExportFontProvider fontProvider;
+    private final PdfParagraphFactory paragraphs;
+    private final CvPaginationPlanner paginationPlanner;
 
     public PdfExportService(
             RenderBudget renderBudget,
-            ExportFontProvider fontProvider) {
+            PdfParagraphFactory paragraphs,
+            CvPaginationPlanner paginationPlanner) {
         this.renderBudget = renderBudget;
-        this.fontProvider = fontProvider;
+        this.paragraphs = paragraphs;
+        this.paginationPlanner = paginationPlanner;
     }
 
     public byte[] export(GeneratedDocumentResponse generatedDocument) {
-        DocumentTemplate template = DocumentTemplate.from(generatedDocument);
+        return export(generatedDocument, null);
+    }
+
+    public byte[] export(
+            GeneratedDocumentResponse generatedDocument,
+            ProfessionalContact professionalContact) {
+        DocumentTemplate template = DocumentTemplate.from(
+                generatedDocument,
+                professionalContact);
         RenderBudget.Session session =
                 renderBudget.start(generatedDocument, template);
         try (BoundedByteArrayOutputStream output = session.output()) {
@@ -67,7 +76,7 @@ public class PdfExportService {
                     PdfName.LANG,
                     new PdfString("en-GB"));
             writer.setPageEvent(
-                    new BrandingFooter(font(8, Font.NORMAL, MUTED_TEXT)));
+                    new BrandingFooter(paragraphs.footerFont()));
             configureMetadata(pdf, writer, template.metadata());
             pdf.open();
             PdfStructureElement documentStructure =
@@ -79,8 +88,13 @@ public class PdfExportService {
                     writer,
                     session);
             List<DocumentTemplate.Block> blocks = template.blocks();
+            CvPaginationPlanner.Plan paginationPlan =
+                    paginationPlanner.plan(template);
             for (int index = 0; index < blocks.size();) {
                 session.checkDeadline();
+                if (paginationPlan.breaksBefore(index)) {
+                    cursor.startNewPage();
+                }
                 DocumentTemplate.Block block = blocks.get(index);
                 if (index == 0 || !blocks.get(index - 1).keepWithNext()) {
                     cursor.ensureFits(keepChainParagraphs(blocks, index));
@@ -95,7 +109,7 @@ public class PdfExportService {
                             == DocumentTemplate.BlockStyle.BULLET) {
                         session.checkDeadline();
                         cursor.add(
-                                bulletParagraph(
+                                paragraphs.bullet(
                                         blocks.get(index).text()),
                                 new PdfStructureElement(
                                         listStructure,
@@ -147,50 +161,50 @@ public class PdfExportService {
             DocumentTemplate.Block block) throws DocumentException {
         switch (block.style()) {
             case TITLE -> cursor.add(
-                    titleParagraph(block.text()),
+                    paragraphs.title(block.text()),
                     new PdfStructureElement(
                             documentStructure, PdfName.H1),
                     block.keepTogether());
             case SUBTITLE -> cursor.add(
-                    subtitleParagraph(block.text()),
+                    paragraphs.subtitle(block.text()),
                     new PdfStructureElement(
                             documentStructure, PdfName.P),
                     block.keepTogether());
             case CONTACT -> cursor.add(
-                    contactParagraph(block.text()),
+                    paragraphs.contact(block),
                     new PdfStructureElement(
                             documentStructure, PdfName.P),
                     block.keepTogether());
             case ACCENT_LINE -> cursor.addAccentLine();
             case SECTION_HEADING -> cursor.add(
-                    sectionHeadingParagraph(block.text()),
+                    paragraphs.sectionHeading(block.text()),
                     new PdfStructureElement(
                             documentStructure, PdfName.H2),
                     block.keepTogether());
             case ROLE_HEADING -> cursor.add(
-                    roleHeadingParagraph(block.text()),
+                    paragraphs.roleHeading(block.text()),
                     new PdfStructureElement(
                             documentStructure, PdfName.H3),
                     block.keepTogether());
             case ENTRY_META -> cursor.add(
-                    entryMetaParagraph(block.text()),
+                    paragraphs.entryMeta(block.text()),
                     new PdfStructureElement(
                             documentStructure, PdfName.P),
                     block.keepTogether());
             case SKILLS -> cursor.add(
-                    skillsParagraph(block.text()),
+                    paragraphs.skills(block.text()),
                     new PdfStructureElement(
                             documentStructure, PdfName.P),
                     block.keepTogether());
             case BULLET -> cursor.add(
-                    bulletParagraph(block.text()),
+                    paragraphs.bullet(block.text()),
                     new PdfStructureElement(
                             new PdfStructureElement(
                                     documentStructure,
                                     PdfName.L), PdfName.LI),
                     block.keepTogether());
             case PARAGRAPH, SIGN_OFF -> cursor.add(
-                    bodyParagraph(block.text()),
+                    paragraphs.body(block.text()),
                     new PdfStructureElement(
                             documentStructure, PdfName.P),
                     block.keepTogether());
@@ -218,116 +232,7 @@ public class PdfExportService {
     }
 
     private Paragraph paragraphFor(DocumentTemplate.Block block) {
-        return switch (block.style()) {
-            case TITLE -> titleParagraph(block.text());
-            case SUBTITLE -> subtitleParagraph(block.text());
-            case CONTACT -> contactParagraph(block.text());
-            case SECTION_HEADING -> sectionHeadingParagraph(block.text());
-            case ROLE_HEADING -> roleHeadingParagraph(block.text());
-            case ENTRY_META -> entryMetaParagraph(block.text());
-            case SKILLS -> skillsParagraph(block.text());
-            case PARAGRAPH, SIGN_OFF -> bodyParagraph(block.text());
-            case BULLET -> bulletParagraph(block.text());
-            case ACCENT_LINE, FOOTER -> null;
-        };
-    }
-
-    private Paragraph titleParagraph(String title) {
-        Font font = font(22, Font.BOLD, DARK_TEXT);
-        Paragraph paragraph = new Paragraph(
-                title == null || title.isBlank()
-                        ? "Generated Document"
-                        : title,
-                font);
-        paragraph.setSpacingAfter(4);
-        return paragraph;
-    }
-
-    private Paragraph subtitleParagraph(String text) {
-        Font font = font(11, Font.NORMAL, MUTED_TEXT);
-        Paragraph paragraph = paragraph(text, font);
-        paragraph.setSpacingAfter(5);
-        return paragraph;
-    }
-
-    private Paragraph contactParagraph(String text) {
-        Font font = font(9, Font.NORMAL, MUTED_TEXT);
-        Paragraph paragraph = paragraph(text, font);
-        paragraph.setSpacingAfter(9);
-        return paragraph;
-    }
-
-    private Paragraph sectionHeadingParagraph(String text) {
-        Font font = font(12, Font.BOLD, ACCENT_BLUE);
-        Paragraph paragraph = paragraph(text, font);
-        paragraph.setSpacingBefore(12);
-        paragraph.setSpacingAfter(5);
-        return paragraph;
-    }
-
-    private Paragraph roleHeadingParagraph(String text) {
-        Font font = font(11, Font.BOLD, DARK_TEXT);
-        Paragraph paragraph = paragraph(text, font);
-        paragraph.setSpacingBefore(8);
-        paragraph.setSpacingAfter(2);
-        return paragraph;
-    }
-
-    private Paragraph entryMetaParagraph(String text) {
-        Font font = font(9, Font.NORMAL, MUTED_TEXT);
-        Paragraph paragraph = paragraph(text, font);
-        paragraph.setSpacingAfter(4);
-        return paragraph;
-    }
-
-    private Paragraph skillsParagraph(String text) {
-        Font font = font(10, Font.NORMAL, DARK_TEXT);
-        Paragraph paragraph = paragraph(text, font);
-        paragraph.setLeading(15);
-        paragraph.setSpacingAfter(7);
-        return paragraph;
-    }
-
-    private Paragraph bodyParagraph(String text) {
-        Font font = font(10, Font.NORMAL, DARK_TEXT);
-        Paragraph paragraph = paragraph(text, font);
-        paragraph.setLeading(14);
-        paragraph.setSpacingAfter(7);
-        return paragraph;
-    }
-
-    private Paragraph bulletParagraph(String text) {
-        Font font = font(10, Font.NORMAL, DARK_TEXT);
-        Paragraph paragraph = paragraph("\u2022 " + text, font);
-        paragraph.setIndentationLeft(18);
-        paragraph.setFirstLineIndent(-9);
-        paragraph.setLeading(14);
-        paragraph.setSpacingAfter(4);
-        return paragraph;
-    }
-
-    private Font font(float size, int style, Color color) {
-        return new Font(fontProvider.pdfFont(), size, style, color);
-    }
-
-    private Paragraph paragraph(String text, Font font) {
-        Paragraph paragraph = new Paragraph();
-        for (AccessibleText.Segment segment
-                : AccessibleText.segments(text)) {
-            if (segment.isLink()) {
-                Font linkFont = new Font(
-                        fontProvider.pdfFont(),
-                        font.getSize(),
-                        font.getStyle() | Font.UNDERLINE,
-                        ACCENT_BLUE);
-                Anchor anchor = new Anchor(segment.text(), linkFont);
-                anchor.setReference(segment.url());
-                paragraph.add(anchor);
-            } else {
-                paragraph.add(new Phrase(segment.text(), font));
-            }
-        }
-        return paragraph;
+        return paragraphs.paragraphFor(block);
     }
 
     private void validatePdf(byte[] bytes) throws Exception {
@@ -486,6 +391,12 @@ public class PdfExportService {
 
         private void ensureSpace() {
             if (y < BOTTOM + 24) {
+                newPage();
+            }
+        }
+
+        private void startNewPage() {
+            if (y < TOP) {
                 newPage();
             }
         }

@@ -1,6 +1,8 @@
 package com.jobseekercopilot.documentexport.service;
 
 import com.jobseekercopilot.documentexport.config.DocumentExportLimits;
+import com.jobseekercopilot.documentexport.dto.ProfessionalContact;
+import com.jobseekercopilot.documentexport.dto.ProfessionalLink;
 import com.jobseekercopilot.generated.documentstoreservice.model.GeneratedDocumentResponse;
 import com.lowagie.text.pdf.PdfArray;
 import com.lowagie.text.pdf.PdfDictionary;
@@ -98,6 +100,172 @@ class ExportRendererTest {
         assertTrue(text.contains("Personal Summary"));
         assertTrue(text.contains("Core Skills"));
         assertTrue(!text.contains(DocumentTemplate.BRAND_FOOTER));
+    }
+
+    @Test
+    void professionalContactRendersAsClickableLabelledLinksAcrossFormats()
+            throws Exception {
+        ProfessionalContact contact = new ProfessionalContact(
+                "+44 20 7946 0958",
+                List.of(
+                        new ProfessionalLink(
+                                "GitHub",
+                                "https://github.com/example-developer"),
+                        new ProfessionalLink(
+                                "Portfolio",
+                                "https://portfolio.example.test")));
+
+        byte[] docxBytes = docxExportService().export(document(), contact);
+        try (XWPFDocument docx = new XWPFDocument(
+                new ByteArrayInputStream(docxBytes))) {
+            XWPFParagraph header = docx.getParagraphs().stream()
+                    .filter(paragraph -> paragraph.getText().contains(
+                            "+44 20 7946 0958"))
+                    .findFirst()
+                    .orElseThrow();
+            assertTrue(header.getText().contains("GitHub"));
+            assertTrue(header.getText().contains("Portfolio"));
+            assertTrue(header.getText().contains(
+                    "GitHub: https://github.com/example-developer"));
+            assertTrue(header.getText().contains(
+                    "Portfolio: https://portfolio.example.test"));
+            assertEquals(
+                    List.of(
+                            "https://github.com/example-developer",
+                            "https://portfolio.example.test"),
+                    header.getRuns().stream()
+                            .filter(XWPFHyperlinkRun.class::isInstance)
+                            .map(XWPFHyperlinkRun.class::cast)
+                            .map(XWPFHyperlinkRun::text)
+                            .toList());
+            assertEquals(
+                    List.of(
+                            "https://github.com/example-developer",
+                            "https://portfolio.example.test"),
+                    header.getRuns().stream()
+                            .filter(XWPFHyperlinkRun.class::isInstance)
+                            .map(XWPFHyperlinkRun.class::cast)
+                            .map(run -> run.getHyperlink(docx))
+                            .filter(java.util.Objects::nonNull)
+                            .map(link -> link.getURL())
+                            .toList());
+        }
+
+        byte[] pdfBytes = pdfExportService().export(document(), contact);
+        String text = pdfText(pdfBytes);
+        String compactText = text.replaceAll("\\s+", "");
+        assertTrue(text.contains("+44 20 7946 0958"));
+        assertTrue(compactText.contains(
+                "GitHub:https://github.com/example-developer"));
+        assertTrue(compactText.contains(
+                "Portfolio:https://portfolio.example.test"));
+        PdfReader reader = new PdfReader(pdfBytes);
+        try {
+            assertEquals(
+                    java.util.Set.of(
+                            "https://github.com/example-developer",
+                            "https://portfolio.example.test"),
+                    new java.util.LinkedHashSet<>(pdfLinks(reader)));
+        } finally {
+            reader.close();
+        }
+    }
+
+    @Test
+    void multipleVisibleProfessionalLinksWrapInsideDocumentBounds()
+            throws Exception {
+        ProfessionalContact contact = new ProfessionalContact(
+                "+44 20 7946 0958",
+                List.of(
+                        new ProfessionalLink(
+                                "GitHub",
+                                "https://github.example.test/example-developer"),
+                        new ProfessionalLink(
+                                "Portfolio",
+                                "https://portfolio.example.test/case-studies"),
+                        new ProfessionalLink(
+                                "Writing",
+                                "https://writing.example.test/software-delivery"),
+                        new ProfessionalLink(
+                                "Community",
+                                "https://community.example.test/open-source")));
+
+        byte[] docxBytes = docxExportService().export(document(), contact);
+        try (XWPFDocument docx = new XWPFDocument(
+                new ByteArrayInputStream(docxBytes))) {
+            XWPFParagraph header = docx.getParagraphs().stream()
+                    .filter(paragraph -> paragraph.getText().contains(
+                            "GitHub: https://github.example.test/example-developer"))
+                    .findFirst()
+                    .orElseThrow();
+            assertTrue(header.getText().contains(
+                    "Community: https://community.example.test/open-source"));
+            assertEquals(
+                    4,
+                    header.getRuns().stream()
+                            .filter(XWPFHyperlinkRun.class::isInstance)
+                            .count());
+            assertTrue(!header.isPageBreak());
+        }
+
+        PdfReader reader = new PdfReader(
+                pdfExportService().export(document(), contact));
+        try {
+            List<PdfLinkAnnotation> annotations = pdfLinkAnnotations(reader);
+            assertEquals(
+                    java.util.Set.of(
+                            "https://github.example.test/example-developer",
+                            "https://portfolio.example.test/case-studies",
+                            "https://writing.example.test/software-delivery",
+                            "https://community.example.test/open-source"),
+                    annotations.stream()
+                            .map(PdfLinkAnnotation::url)
+                            .collect(java.util.stream.Collectors.toSet()));
+            assertTrue(annotations.size() >= 4);
+            assertTrue(
+                    annotations.stream()
+                            .map(annotation -> Math.round(annotation.bottom()))
+                            .distinct()
+                            .count() >= 2,
+                    "Multiple visible links should wrap across header lines");
+            for (PdfLinkAnnotation annotation : annotations) {
+                assertTrue(annotation.left() >= PdfExportService.LEFT - 1);
+                assertTrue(annotation.right() <= PdfExportService.RIGHT + 1);
+                assertTrue(annotation.bottom() >= PdfExportService.BOTTOM - 1);
+                assertTrue(annotation.top() <= PdfExportService.TOP + 1);
+            }
+        } finally {
+            reader.close();
+        }
+    }
+
+    @Test
+    void professionalContactDoesNotDuplicateExistingGeneratedLink() throws Exception {
+        GeneratedDocumentResponse generated = document().content("""
+                Tailored CV
+
+                Alex Candidate
+                alex@example.com
+                https://github.com/example-developer
+
+                Personal Summary
+                First paragraph.
+                """);
+        ProfessionalContact contact = new ProfessionalContact(
+                null,
+                List.of(new ProfessionalLink(
+                        "GitHub",
+                        "https://github.com/example-developer")));
+
+        byte[] bytes = pdfExportService().export(generated, contact);
+        PdfReader reader = new PdfReader(bytes);
+        try {
+            assertEquals(
+                    List.of("https://github.com/example-developer"),
+                    pdfLinks(reader));
+        } finally {
+            reader.close();
+        }
     }
 
     @Test
@@ -268,6 +436,8 @@ class ExportRendererTest {
         try (XWPFDocument docx = new XWPFDocument(
                 new ByteArrayInputStream(docxBytes))) {
             docxText = bodyText(docx);
+            assertTrue(docx.getParagraphs().stream()
+                    .noneMatch(XWPFParagraph::isPageBreak));
             assertEquals(
                     expectedHeadings,
                     docx.getParagraphs().stream()
@@ -385,6 +555,8 @@ class ExportRendererTest {
         try (XWPFDocument docx = new XWPFDocument(
                 new ByteArrayInputStream(docxBytes))) {
             docxText = bodyText(docx);
+            assertTrue(docx.getParagraphs().stream()
+                    .noneMatch(XWPFParagraph::isPageBreak));
             assertEquals(
                     evidenceItems,
                     docx.getParagraphs().stream()
@@ -662,6 +834,67 @@ class ExportRendererTest {
         assertEquals(1, pages.size());
         assertTrue(pages.get(0).contains("Education and Qualifications"));
         assertTrue(pages.get(0).contains("BSc Computer Science"));
+        try (XWPFDocument docx = new XWPFDocument(
+                new ByteArrayInputStream(docxExportService().export(document)))) {
+            assertTrue(docx.getParagraphs().stream()
+                    .noneMatch(XWPFParagraph::isPageBreak));
+        }
+    }
+
+    @Test
+    void sparseTwoPageCvUsesTheSameSemanticBoundaryAcrossFormats()
+            throws Exception {
+        GeneratedDocumentResponse document = sparseTwoPageCv();
+
+        List<String> naturalPages = pdfPageTexts(
+                pdfExportServiceWithoutSemanticBreaks().export(document));
+        assertEquals(2, naturalPages.size());
+        assertTrue(naturalPages.get(0).contains("Selected Projects"));
+        assertTrue(!naturalPages.get(1).contains("Selected Projects"));
+        assertTrue(naturalPages.get(1).contains(
+                "Education and Qualifications"));
+
+        List<String> pages = pdfPageTexts(pdfExportService().export(document));
+
+        assertEquals(2, pages.size());
+        assertTrue(pages.get(0).contains("Professional Experience"));
+        assertTrue(!pages.get(0).contains("Selected Projects"));
+        assertTrue(pages.get(1).contains("Selected Projects"));
+        assertTrue(pages.get(1).contains("Application Delivery Platform"));
+        assertTrue(pages.get(1).contains("Education and Qualifications"));
+        assertTrue(pages.get(1).contains("BSc Computer Science"));
+
+        try (XWPFDocument docx = new XWPFDocument(
+                new ByteArrayInputStream(docxExportService().export(document)))) {
+            List<XWPFParagraph> pageBreaks = docx.getParagraphs().stream()
+                    .filter(XWPFParagraph::isPageBreak)
+                    .toList();
+            assertEquals(1, pageBreaks.size());
+            assertEquals("Selected Projects", pageBreaks.get(0).getText());
+        }
+    }
+
+    @Test
+    void naturallyBalancedTwoPageCvDoesNotReceiveAForcedBreak()
+            throws Exception {
+        GeneratedDocumentResponse document = sparseTwoPageCv();
+        String additionalEducation = IntStream.rangeClosed(1, 8)
+                .mapToObj(index -> ("- Additional accredited module %02d in "
+                        + "software delivery and collaborative engineering.")
+                        .formatted(index))
+                .collect(Collectors.joining("\n"));
+        document.content(document.getContent()
+                + "\n"
+                + additionalEducation);
+
+        assertEquals(
+                2,
+                pdfPageTexts(pdfExportService().export(document)).size());
+        try (XWPFDocument docx = new XWPFDocument(
+                new ByteArrayInputStream(docxExportService().export(document)))) {
+            assertTrue(docx.getParagraphs().stream()
+                    .noneMatch(XWPFParagraph::isPageBreak));
+        }
     }
 
     @Test
@@ -718,14 +951,41 @@ class ExportRendererTest {
 
     private DocxExportService docxExportService() {
         DocumentExportLimits limits = new DocumentExportLimits();
-        return new DocxExportService(new RenderBudget(limits));
+        ExportFontProvider fontProvider = new ExportFontProvider(limits);
+        PdfParagraphFactory paragraphs =
+                new PdfParagraphFactory(fontProvider);
+        return new DocxExportService(
+                new RenderBudget(limits),
+                new CvPaginationPlanner(paragraphs));
     }
 
     private PdfExportService pdfExportService() {
         DocumentExportLimits limits = new DocumentExportLimits();
+        ExportFontProvider fontProvider = new ExportFontProvider(limits);
+        PdfParagraphFactory paragraphs =
+                new PdfParagraphFactory(fontProvider);
         return new PdfExportService(
                 new RenderBudget(limits),
-                new ExportFontProvider(limits));
+                paragraphs,
+                new CvPaginationPlanner(paragraphs));
+    }
+
+    private PdfExportService pdfExportServiceWithoutSemanticBreaks() {
+        DocumentExportLimits limits = new DocumentExportLimits();
+        ExportFontProvider fontProvider = new ExportFontProvider(limits);
+        PdfParagraphFactory paragraphs =
+                new PdfParagraphFactory(fontProvider);
+        CvPaginationPlanner disabledPlanner =
+                new CvPaginationPlanner(paragraphs) {
+                    @Override
+                    public Plan plan(DocumentTemplate template) {
+                        return Plan.none();
+                    }
+                };
+        return new PdfExportService(
+                new RenderBudget(limits),
+                paragraphs,
+                disabledPlanner);
     }
 
     private GeneratedDocumentResponse coverLetter() {
@@ -827,6 +1087,60 @@ class ExportRendererTest {
 
                         Professional Profile
                         Builds reliable services with governed delivery.
+                        """);
+    }
+
+    private GeneratedDocumentResponse sparseTwoPageCv() {
+        return new GeneratedDocumentResponse()
+                .id(UUID.fromString(
+                        "10000000-0000-0000-0000-000000000004"))
+                .documentType(
+                        GeneratedDocumentResponse.DocumentTypeEnum.CV)
+                .title("Tailored CV")
+                .content("""
+                        Tailored CV
+
+                        Alex Candidate
+                        alex@example.test
+                        London
+
+                        Professional Profile
+                        Full-stack software developer delivering reliable Java services and accessible Angular interfaces across collaborative, safety-conscious product teams.
+
+                        Technical Skills
+                        Java · Spring Boot · Angular · TypeScript · REST APIs · Microservices · Docker · AWS · PostgreSQL · Automated Testing · Playwright · CI/CD
+
+                        Professional Experience
+                        Full-Stack Software Developer — Resonate Systems
+                        January 2021 – August 2024
+                        - Delivered tested Java and Spring microservices with Angular interfaces while collaborating across engineering and product disciplines.
+                        - Added unit, integration and contract checks to support dependable releases of safety-conscious operational software.
+                        - Mentored new engineers and supported apprentices building a substantial Angular training application.
+
+                        Website Administrator — Example Digital
+                        August 2024 – January 2025
+                        - Improved client websites, analysed lead-generation data and communicated clearly with customers about practical changes.
+                        - Used structured sales reporting to identify useful follow-up actions while keeping client records accurate.
+
+                        Community Coordinator — Example Community Centre
+                        December 2024 – September 2025
+                        - Coordinated services, maintained accurate records and supported residents through dependable operational routines.
+
+                        Selected Projects
+                        Application Delivery Platform — Lead developer
+                        May 2025 – Present
+                        - Designed a multi-service Java and Angular product with provider integrations, document generation and end-to-end tests.
+                        - Owned API contracts, containerised development and cross-service quality decisions from discovery through pre-beta testing.
+
+                        Codecademy Docs — Open-source contributor
+                        December 2021
+                        - Authored educational Java material explaining five established creational design patterns for software learners.
+
+                        Education and Qualifications
+                        - AWS re/Start Programme, July 2021
+                        - AWS Certified Cloud Practitioner, July 2021
+                        - BSc Computer Science, University of Birmingham, June 2021
+                        - Diploma in Software Development, Example College, June 2019
                         """);
     }
 
@@ -988,6 +1302,47 @@ class ExportRendererTest {
             }
         }
         return List.copyOf(links);
+    }
+
+    private List<PdfLinkAnnotation> pdfLinkAnnotations(PdfReader reader) {
+        java.util.ArrayList<PdfLinkAnnotation> links = new java.util.ArrayList<>();
+        for (int page = 1; page <= reader.getNumberOfPages(); page++) {
+            PdfArray annotations = reader.getPageN(page).getAsArray(PdfName.ANNOTS);
+            if (annotations == null) {
+                continue;
+            }
+            for (PdfObject object : annotations.getElements()) {
+                PdfDictionary annotation =
+                        (PdfDictionary) PdfReader.getPdfObject(object);
+                PdfDictionary action = annotation.getAsDict(PdfName.A);
+                PdfString uri = action == null
+                        ? null
+                        : action.getAsString(PdfName.URI);
+                PdfArray bounds = annotation.getAsArray(PdfName.RECT);
+                if (uri == null || bounds == null || bounds.size() != 4) {
+                    continue;
+                }
+                float x1 = bounds.getAsNumber(0).floatValue();
+                float y1 = bounds.getAsNumber(1).floatValue();
+                float x2 = bounds.getAsNumber(2).floatValue();
+                float y2 = bounds.getAsNumber(3).floatValue();
+                links.add(new PdfLinkAnnotation(
+                        uri.toUnicodeString(),
+                        Math.min(x1, x2),
+                        Math.min(y1, y2),
+                        Math.max(x1, x2),
+                        Math.max(y1, y2)));
+            }
+        }
+        return List.copyOf(links);
+    }
+
+    private record PdfLinkAnnotation(
+            String url,
+            float left,
+            float bottom,
+            float right,
+            float top) {
     }
 
     private List<PdfName> pdfStructureRoles(PdfObject object) {

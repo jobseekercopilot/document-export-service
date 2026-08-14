@@ -19,7 +19,7 @@ done
 
 jq -e '
     (.openapi | type == "string" and startswith("3.")) and
-    (.info.version == "3.0.0") and
+    (.info.version == "3.1.0") and
     (.components.securitySchemes.serviceToken.type == "apiKey") and
     (.components.securitySchemes.serviceToken.in == "header") and
     (.components.securitySchemes.serviceToken.name == "X-Service-Token") and
@@ -56,7 +56,16 @@ jq -e '
         | any(has("serviceToken"))) and
     (.components.schemas.DocumentExportRequest.required | index("formats") != null) and
     (.components.schemas.DocumentExportRequest.properties.formats.items.enum
-        | index("DOCX") != null and index("PDF") != null)
+        | index("DOCX") != null and index("PDF") != null) and
+    (.components.schemas.DocumentExportRequest.properties.professionalContact["$ref"]
+        == "#/components/schemas/ProfessionalContact") and
+    (.components.schemas.ProfessionalContact.properties.phone.maxLength == 40) and
+    (.components.schemas.ProfessionalContact.properties.links.maxItems == 8) and
+    (.components.schemas.ProfessionalLink.properties.label.minLength == 1) and
+    (.components.schemas.ProfessionalLink.properties.label.maxLength == 40) and
+    (.components.schemas.ProfessionalLink.properties.url.minLength == 9) and
+    (.components.schemas.ProfessionalLink.properties.url.maxLength == 512) and
+    (.components.schemas.ProfessionalLink.properties.url.pattern == "^https://")
 ' "$contract" >/dev/null
 
 echo "API contract policy: Document Export OpenAPI source is present, intact and compatible"

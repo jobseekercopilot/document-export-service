@@ -47,6 +47,12 @@ Document Export derives a stable key for each requested format and uses
 Document Store `2.2.0` replay semantics, so a timeout after one file is stored
 can resume without creating duplicate file versions.
 
+Version `3.1.0` adds an optional, bounded `professionalContact` object to
+ordinary export requests. It accepts a user-declared phone number and up to
+eight labelled, credential-free HTTPS links. PDF and DOCX headers render each
+label and visible URL with the URL as a clickable link; callers that omit the
+object retain the existing document-content rendering path.
+
 The Document Store client is generated during Maven `generate-sources` from the
 reviewed, checksum-protected producer contract under `src/main/openapi`.
 Generated sources and binaries are build outputs and are not committed. See
