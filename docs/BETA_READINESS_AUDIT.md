@@ -4,6 +4,24 @@ Audit date: 2026-07-23
 
 Status: **Not ready for private beta**
 
+Update 2026-07-24: DOCGEN-15 now implements the Document Export producer-side
+service identity and owner-bound Store calls. Gateway adoption, runtime secret
+injection and integrated two-user evidence are still required.
+
+Update 2026-07-26: EXPORT-02 now streams and inspects untrusted OOXML, rejects
+active/external/unsafe content, enforces configurable upload and render
+budgets, and proves UK/Unicode text, DOCX heading semantics, tagged PDF
+language, active HTTPS links, content-stream reading order and an approved
+embedded DejaVu Sans font with synthetic tests. Third-party dependency, font
+and original-template notices are reviewed in `THIRD_PARTY_NOTICES.md`.
+Independent security/licence review remains an external release gate.
+
+Update 2026-07-26: EXPORT-03 now applies one immutable ordered render model to
+both formats, emits real DOCX/PDF list objects, accepts only absolute
+credential-free HTTPS links, and shares privacy-bounded title/author/version
+metadata. Synthetic tests compare extracted Unicode heading/list text across
+DOCX and PDF and prove unsafe or unknown content remains inert plain text.
+
 ## Verified responsibility
 
 The service fetches generated text from Document Store, converts it to DOCX
@@ -13,6 +31,10 @@ Store. Rendering is in memory; no service-owned temporary files were found.
 The upload endpoint accepts a replacement DOCX and then advertises an updated
 PDF. In the current implementation that PDF is rendered from the unchanged
 stored text, not from the uploaded DOCX, so user edits are not represented.
+APP-08 now gives this path a stable Tracker operation key. Export derives
+independent replay-safe DOCX and PDF Store keys and reuses a previously written
+PDF after a lost response. This closes duplicate-write recovery, not the
+separate DOCX-to-PDF fidelity gap.
 
 ## Migration evidence
 
@@ -23,42 +45,37 @@ stored text, not from the uploaded DOCX, so user edits are not represented.
   files are excluded.
 - The migration-time contract is `contracts/openapi.json`.
 - Gitleaks and targeted personal-data checks passed on the source snapshot.
-- A clean `mvn -B clean verify` fails before compilation because the
-  `systemPath` document-store client JAR is absent. Ten test methods exist in
-  source, but they were not executed in the clean candidate.
-- The candidate container build fails at `COPY libs ./libs`; no image was
-  produced.
+- DOC-02 replaces the `systemPath` document-store client JAR with deterministic
+  source generation from an exact revision/checksum-pinned producer contract.
+  Contract policy tests, Maven verification and the source-only container build
+  now run in CI without a sibling repository, local `libs/` directory or
+  preinstalled Job Seeker Copilot artifact.
 - OWASP Dependency-Check 12.1.8 completed against the cached 2026-07-18
   advisory database: 53 dependencies, 11 vulnerable dependencies, 140
-  vulnerability matches, including 17 Critical and 38 High matches. Results
+  vulnerability matches, including 17 Critical and 37 High matches. Results
   require reachability/false-positive triage; the report was not committed.
 
 ## Confirmed blockers
 
-1. Export and replacement endpoints do not authenticate a user or authorise
-   ownership of the requested generated document.
+1. Gateway and Infrastructure must adopt the implemented Document Export 3.0.0
+   service-identity and owner-context contract before ownership is enforced in
+   the deployed end-to-end path.
 2. The replacement flow stores uploaded DOCX bytes but regenerates PDF from
    stale generated text; it can falsely claim the PDF was updated.
 3. `documentKind` is not checked against the stored document type.
-4. Exporting multiple formats is not atomic; partial saves can leave an
-   inconsistent active file set.
-5. Upload inspection is delegated to weak downstream ZIP checks and has no
-   malware, macro, external relationship, decompression, or content-policy
-   evidence.
-6. Render input and output have no service-level length, page, memory, or
-   response-size budgets.
-7. PDF uses built-in Helvetica and DOCX requests Aptos; Unicode coverage,
-   font substitution, licensing, accessibility, and environment consistency
-   have not been demonstrated.
-8. There are no tests for PDF text extraction, DOCX editability after a real
-   office round trip, links, page breaks, large content, malicious input,
-   accessibility, or cross-user denial.
-9. Downstream calls do not share a bounded timeout/retry/idempotency policy.
-10. Third-party dependency and licence review evidence is incomplete.
-11. The Dockerfile lacks a non-root runtime, digest-pinned bases, explicit
+4. General exporting of multiple formats is not atomic. Tracker-orchestrated
+   replacement writes are now replay-safe, but other partial saves can still
+   leave an inconsistent active file set.
+5. A real-office DOCX edit/save round trip and integrated two-user denial
+   remain outstanding system evidence; local structural/quality and
+   service-boundary tests do not replace them.
+6. Downstream calls do not share a bounded timeout/retry policy. APP-08 adds
+   idempotency to replacement writes only.
+7. The Dockerfile lacks a non-root runtime, digest-pinned bases, explicit
     resource constraints, and supply-chain scan evidence.
-12. The build depends on an untracked generated client JAR.
-13. Current Spring, Tomcat, Jackson, compression, POI, logging, and Swagger UI
+8. Wider document-generation consumers still need the same reproducible
+    contract approach under DOCGEN-02/DOCGEN-03.
+9. Current Spring, Tomcat, Jackson, compression, POI, logging, and Swagger UI
     dependency findings include untriaged Critical/High advisories.
 
 ## Required validation

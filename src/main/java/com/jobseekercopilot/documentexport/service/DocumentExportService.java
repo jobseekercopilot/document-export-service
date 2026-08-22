@@ -14,14 +14,16 @@ import com.jobseekercopilot.generated.documentstoreservice.api.GeneratedDocument
 import com.jobseekercopilot.generated.documentstoreservice.model.CreateDocumentFileRequest;
 import com.jobseekercopilot.generated.documentstoreservice.model.DocumentFileResponse;
 import com.jobseekercopilot.generated.documentstoreservice.model.GeneratedDocumentResponse;
-import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -35,36 +37,71 @@ import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Service
-@RequiredArgsConstructor
 public class DocumentExportService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentExportService.class);
+    private static final String DOCUMENT_OWNER_HEADER = "X-Document-Owner";
+    private static final Pattern IDEMPOTENCY_KEY =
+            Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:-]{0,119}");
 
     public static final String DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     public static final String PDF_MIME_TYPE = "application/pdf";
 
     private final GeneratedDocumentsApi generatedDocumentsApi;
-    private final DocumentFilesApi documentFilesApi;
+    private final DocumentFilesApi producerDocumentFilesApi;
+    private final DocumentFilesApi readerDocumentFilesApi;
     private final DocxExportService docxExportService;
     private final PdfExportService pdfExportService;
+    private final DocxUploadInspector docxUploadInspector;
     private final RestTemplate restTemplate;
 
     @Value("${services.document-store-service.base-url:http://localhost:8089}")
     private String documentStoreBaseUrl;
 
-    public DocumentExportResponse exportDocument(UUID documentId, DocumentExportRequest request) {
+    public DocumentExportService(
+            GeneratedDocumentsApi generatedDocumentsApi,
+            @Qualifier("documentStoreProducerFilesApi")
+            DocumentFilesApi producerDocumentFilesApi,
+            @Qualifier("documentStoreReaderFilesApi")
+            DocumentFilesApi readerDocumentFilesApi,
+            DocxExportService docxExportService,
+            PdfExportService pdfExportService,
+            DocxUploadInspector docxUploadInspector,
+            RestTemplate restTemplate) {
+        this.generatedDocumentsApi = generatedDocumentsApi;
+        this.producerDocumentFilesApi = producerDocumentFilesApi;
+        this.readerDocumentFilesApi = readerDocumentFilesApi;
+        this.docxExportService = docxExportService;
+        this.pdfExportService = pdfExportService;
+        this.docxUploadInspector = docxUploadInspector;
+        this.restTemplate = restTemplate;
+    }
+
+    public DocumentExportResponse exportDocument(
+            UUID documentId,
+            DocumentExportRequest request,
+            String documentOwner,
+            String idempotencyKey) {
+        String operationKey = validatedIdempotencyKey(idempotencyKey);
         long startedAt = System.nanoTime();
         log.info("Document export started documentId={} formats={}",
                 documentId,
                 request == null || request.getFormats() == null ? 0 : request.getFormats().size());
-        GeneratedDocumentResponse document = fetchDocument(documentId);
+        GeneratedDocumentResponse document = fetchDocument(documentId, documentOwner);
         List<DocumentExportItem> exports = new ArrayList<>();
 
         for (ExportFormat format : new LinkedHashSet<>(request.getFormats())) {
-            exports.add(exportAndSave(document, format));
+            exports.add(exportAndSave(
+                    document,
+                    format,
+                    request.getProfessionalContact(),
+                    documentOwner,
+                    operationKey(operationKey, format.name().toLowerCase(Locale.ROOT))));
         }
 
         log.info("Document export completed documentId={} exportCount={} durationMs={}",
@@ -77,29 +114,65 @@ public class DocumentExportService {
                 .build();
     }
 
-    public DocumentUploadResponse uploadReplacement(UUID generatedDocumentId, MultipartFile file,
-                                                    DocumentKind documentKind, ExportFormat uploadedFormat) {
+    public DocumentUploadResponse uploadReplacement(
+            UUID generatedDocumentId,
+            MultipartFile file,
+            DocumentKind documentKind,
+            ExportFormat uploadedFormat,
+            String documentOwner) {
+        return uploadReplacement(
+                generatedDocumentId,
+                file,
+                documentKind,
+                uploadedFormat,
+                documentOwner,
+                null);
+    }
+
+    public DocumentUploadResponse uploadReplacement(
+            UUID generatedDocumentId,
+            MultipartFile file,
+            DocumentKind documentKind,
+            ExportFormat uploadedFormat,
+            String documentOwner,
+            String idempotencyKey) {
         long startedAt = System.nanoTime();
         log.info("Document export replacement upload started generatedDocumentId={} documentKind={} uploadedFormat={} sizeBytes={}",
                 generatedDocumentId,
                 documentKind,
                 uploadedFormat,
                 file == null ? 0 : file.getSize());
-        fetchDocument(generatedDocumentId);
+        fetchDocument(generatedDocumentId, documentOwner);
         validateUpload(file, documentKind, uploadedFormat);
 
-        StoreDocumentFileResponse uploaded = uploadToStore(generatedDocumentId, file, uploadedFormat);
-        GeneratedDocumentResponse document = fetchDocument(generatedDocumentId);
-        DocumentFileResponse pdf = saveFile(
+        StoreDocumentFileResponse uploaded = uploadToStore(
                 generatedDocumentId,
-                ExportFormat.PDF,
-                fileName(document, ExportFormat.PDF),
-                PDF_MIME_TYPE,
-                pdfExportService.export(document));
-        List<DocumentExportItem> regeneratedFiles = List.of(toExportItem(pdf));
+                file,
+                uploadedFormat,
+                documentOwner,
+                operationKey(idempotencyKey, "docx"));
+        GeneratedDocumentResponse document = fetchDocument(generatedDocumentId, documentOwner);
+        DocumentExportItem pdfItem;
+        LatestDocumentFiles beforePdf = hasText(idempotencyKey)
+                ? latestFiles(generatedDocumentId, documentOwner)
+                : null;
+        if (beforePdf != null && beforePdf.getPdf() != null) {
+            pdfItem = beforePdf.getPdf();
+        } else {
+            DocumentFileResponse pdf = saveFile(
+                    generatedDocumentId,
+                    ExportFormat.PDF,
+                    fileName(document, ExportFormat.PDF),
+                    PDF_MIME_TYPE,
+                    pdfExportService.export(document),
+                    documentOwner,
+                    operationKey(idempotencyKey, "pdf"));
+            pdfItem = toExportItem(pdf);
+        }
+        List<DocumentExportItem> regeneratedFiles = List.of(pdfItem);
         String message = "Document replaced successfully. PDF version has been updated.";
 
-        LatestDocumentFiles latestFiles = latestFiles(generatedDocumentId);
+        LatestDocumentFiles latestFiles = latestFiles(generatedDocumentId, documentOwner);
         log.info("Document export replacement upload completed generatedDocumentId={} uploadedFormat={} durationMs={}",
                 generatedDocumentId,
                 uploadedFormat,
@@ -113,11 +186,12 @@ public class DocumentExportService {
                 .build();
     }
 
-    private GeneratedDocumentResponse fetchDocument(UUID documentId) {
+    private GeneratedDocumentResponse fetchDocument(UUID documentId, String documentOwner) {
         long startedAt = System.nanoTime();
         log.info("Calling document-store-service get generated document documentId={}", documentId);
         try {
-            GeneratedDocumentResponse document = generatedDocumentsApi.getDocumentById(documentId);
+            GeneratedDocumentResponse document =
+                    generatedDocumentsApi.getDocumentById(documentId, documentOwner);
             if (document == null || document.getId() == null) {
                 throw new DownstreamServiceException("Document store returned no generated document", null);
             }
@@ -136,12 +210,21 @@ public class DocumentExportService {
         }
     }
 
-    private DocumentExportItem exportAndSave(GeneratedDocumentResponse document, ExportFormat format) {
+    private DocumentExportItem exportAndSave(
+            GeneratedDocumentResponse document,
+            ExportFormat format,
+            com.jobseekercopilot.documentexport.dto.ProfessionalContact professionalContact,
+            String documentOwner,
+            String idempotencyKey) {
         long startedAt = System.nanoTime();
         log.info("Document render started documentId={} format={}", document.getId(), format);
         byte[] bytes = switch (format) {
-            case DOCX -> docxExportService.export(document);
-            case PDF -> pdfExportService.export(document);
+            case DOCX -> professionalContact == null
+                    ? docxExportService.export(document)
+                    : docxExportService.export(document, professionalContact);
+            case PDF -> professionalContact == null
+                    ? pdfExportService.export(document)
+                    : pdfExportService.export(document, professionalContact);
         };
         log.info("Document render completed documentId={} format={} sizeBytes={} durationMs={}",
                 document.getId(),
@@ -151,7 +234,15 @@ public class DocumentExportService {
         String mimeType = mimeType(format);
         String fileName = fileName(document, format);
 
-        DocumentFileResponse savedFile = saveFile(document.getId(), format, fileName, mimeType, bytes);
+        DocumentFileResponse savedFile =
+                saveFile(
+                        document.getId(),
+                        format,
+                        fileName,
+                        mimeType,
+                        bytes,
+                        documentOwner,
+                        idempotencyKey);
         if (savedFile == null || savedFile.getId() == null) {
             throw new DownstreamServiceException("Document store returned no exported file ID", null);
         }
@@ -165,7 +256,12 @@ public class DocumentExportService {
                 .build();
     }
 
-    private StoreDocumentFileResponse uploadToStore(UUID generatedDocumentId, MultipartFile file, ExportFormat uploadedFormat) {
+    private StoreDocumentFileResponse uploadToStore(
+            UUID generatedDocumentId,
+            MultipartFile file,
+            ExportFormat uploadedFormat,
+            String documentOwner,
+            String idempotencyKey) {
         long startedAt = System.nanoTime();
         log.info("Calling document-store-service upload replacement generatedDocumentId={} format={} sizeBytes={}",
                 generatedDocumentId,
@@ -187,6 +283,10 @@ public class DocumentExportService {
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+            headers.set(DOCUMENT_OWNER_HEADER, documentOwner);
+            if (hasText(idempotencyKey)) {
+                headers.set("Idempotency-Key", idempotencyKey);
+            }
 
             StoreDocumentFileResponse response = restTemplate.postForObject(
                     documentStoreBaseUrl + "/api/v1/documents/{generatedDocumentId}/files/upload",
@@ -210,27 +310,27 @@ public class DocumentExportService {
         }
     }
 
-    private LatestDocumentFiles latestFiles(UUID generatedDocumentId) {
+    private LatestDocumentFiles latestFiles(UUID generatedDocumentId, String documentOwner) {
         long startedAt = System.nanoTime();
         log.info("Calling document-store-service latest files generatedDocumentId={}", generatedDocumentId);
         try {
-            StoreDocumentFileResponse[] latest = restTemplate.getForObject(
-                    documentStoreBaseUrl + "/api/v1/documents/{generatedDocumentId}/files/latest",
-                    StoreDocumentFileResponse[].class,
-                    generatedDocumentId);
+            List<DocumentFileResponse> latest =
+                    readerDocumentFilesApi.getLatestFilesForDocument(
+                            generatedDocumentId,
+                            documentOwner);
             DocumentExportItem docx = null;
             DocumentExportItem pdf = null;
-            for (StoreDocumentFileResponse file : latest == null ? new StoreDocumentFileResponse[0] : latest) {
-                if (file.getFileType() == ExportFormat.DOCX && docx == null) {
+            for (DocumentFileResponse file : latest == null ? List.<DocumentFileResponse>of() : latest) {
+                if (file.getFileType() == DocumentFileResponse.FileTypeEnum.DOCX && docx == null) {
                     docx = toExportItem(file);
                 }
-                if (file.getFileType() == ExportFormat.PDF && pdf == null) {
+                if (file.getFileType() == DocumentFileResponse.FileTypeEnum.PDF && pdf == null) {
                     pdf = toExportItem(file);
                 }
             }
             log.info("document-store-service latest files returned generatedDocumentId={} count={} durationMs={}",
                     generatedDocumentId,
-                    latest == null ? 0 : latest.length,
+                    latest == null ? 0 : latest.size(),
                     (System.nanoTime() - startedAt) / 1_000_000);
             return LatestDocumentFiles.builder().docx(docx).pdf(pdf).build();
         } catch (RestClientException exception) {
@@ -271,8 +371,31 @@ public class DocumentExportService {
                 .build();
     }
 
-    private DocumentFileResponse saveFile(UUID documentId, ExportFormat format, String fileName,
-                                          String mimeType, byte[] bytes) {
+    private DocumentFileResponse saveFile(
+            UUID documentId,
+            ExportFormat format,
+            String fileName,
+            String mimeType,
+            byte[] bytes,
+            String documentOwner) {
+        return saveFile(
+                documentId,
+                format,
+                fileName,
+                mimeType,
+                bytes,
+                documentOwner,
+                null);
+    }
+
+    private DocumentFileResponse saveFile(
+            UUID documentId,
+            ExportFormat format,
+            String fileName,
+            String mimeType,
+            byte[] bytes,
+            String documentOwner,
+            String idempotencyKey) {
         long startedAt = System.nanoTime();
         log.info("Calling document-store-service save exported file documentId={} format={} sizeBytes={}",
                 documentId,
@@ -285,7 +408,37 @@ public class DocumentExportService {
                 .mimeType(mimeType)
                 .fileContentBase64(Base64.getEncoder().encodeToString(bytes));
         try {
-            DocumentFileResponse response = documentFilesApi.createDocumentFile(request);
+            DocumentFileResponse response;
+            if (hasText(idempotencyKey)) {
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.APPLICATION_JSON);
+                headers.set(DOCUMENT_OWNER_HEADER, documentOwner);
+                headers.set("Idempotency-Key", idempotencyKey);
+                ResponseEntity<DocumentFileResponse> storeResponse =
+                        restTemplate.exchange(
+                                documentStoreBaseUrl
+                                        + "/api/v1/document-files",
+                                HttpMethod.POST,
+                                new HttpEntity<>(
+                                        Map.of(
+                                                "generatedDocumentId",
+                                                documentId,
+                                                "fileType",
+                                                format.name(),
+                                                "fileName",
+                                                fileName,
+                                                "mimeType",
+                                                mimeType,
+                                                "fileContentBase64",
+                                                Base64.getEncoder()
+                                                        .encodeToString(bytes)),
+                                        headers),
+                                DocumentFileResponse.class);
+                response = storeResponse.getBody();
+            } else {
+                response = producerDocumentFilesApi.createDocumentFile(
+                        request, null, documentOwner);
+            }
             log.info("document-store-service save exported file returned documentId={} format={} fileId={} durationMs={}",
                     documentId,
                     format,
@@ -315,6 +468,23 @@ public class DocumentExportService {
             case DOCX -> DOCX_MIME_TYPE;
             case PDF -> PDF_MIME_TYPE;
         };
+    }
+
+    private String operationKey(String base, String step) {
+        return hasText(base) ? base.trim() + ":" + step : null;
+    }
+
+    private String validatedIdempotencyKey(String value) {
+        String normalized = value == null ? "" : value.trim();
+        if (!IDEMPOTENCY_KEY.matcher(normalized).matches()) {
+            throw new IllegalArgumentException(
+                    "Idempotency-Key must contain 1 to 120 safe characters.");
+        }
+        return normalized;
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private String fileName(GeneratedDocumentResponse document, ExportFormat format) {
@@ -347,6 +517,7 @@ public class DocumentExportService {
                 && !mimeType(uploadedFormat).equals(contentType)) {
             throw new IllegalArgumentException("Uploaded file MIME type does not match " + uploadedFormat);
         }
+        docxUploadInspector.inspect(file);
     }
 
     private String slug(String value) {

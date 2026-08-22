@@ -6,12 +6,34 @@ spring:
     name: document-export-service
   servlet:
     multipart:
-      max-file-size: 25MB
-      max-request-size: 30MB
+      max-file-size: 10MB
+      max-request-size: 12MB
 
 services:
   document-store-service:
     base-url: ${DOCUMENT_STORE_SERVICE_BASE_URL:http://localhost:8089}
+
+document-export:
+  security:
+    gateway-token: ${DOCUMENT_EXPORT_GATEWAY_TOKEN:}
+    document-store-producer-token: ${DOCUMENT_STORE_PRODUCER_TOKEN:}
+    document-store-reader-token: ${DOCUMENT_STORE_READER_TOKEN:}
+  limits:
+    upload-max-compressed-bytes: ${DOCUMENT_EXPORT_UPLOAD_MAX_COMPRESSED_BYTES:10485760}
+    upload-max-expanded-bytes: ${DOCUMENT_EXPORT_UPLOAD_MAX_EXPANDED_BYTES:52428800}
+    upload-max-entry-bytes: ${DOCUMENT_EXPORT_UPLOAD_MAX_ENTRY_BYTES:10485760}
+    upload-max-entries: ${DOCUMENT_EXPORT_UPLOAD_MAX_ENTRIES:256}
+    upload-max-entry-name-characters: ${DOCUMENT_EXPORT_UPLOAD_MAX_ENTRY_NAME_CHARACTERS:240}
+    upload-max-compression-ratio: ${DOCUMENT_EXPORT_UPLOAD_MAX_COMPRESSION_RATIO:100}
+    upload-max-relationship-bytes: ${DOCUMENT_EXPORT_UPLOAD_MAX_RELATIONSHIP_BYTES:524288}
+    render-max-input-characters: ${DOCUMENT_EXPORT_RENDER_MAX_INPUT_CHARACTERS:100000}
+    render-max-blocks: ${DOCUMENT_EXPORT_RENDER_MAX_BLOCKS:1000}
+    render-max-estimated-pages: ${DOCUMENT_EXPORT_RENDER_MAX_PAGES:25}
+    render-lines-per-page: ${DOCUMENT_EXPORT_RENDER_LINES_PER_PAGE:45}
+    render-characters-per-line: ${DOCUMENT_EXPORT_RENDER_CHARACTERS_PER_LINE:100}
+    render-max-output-bytes: ${DOCUMENT_EXPORT_RENDER_MAX_OUTPUT_BYTES:8388608}
+    render-max-duration: ${DOCUMENT_EXPORT_RENDER_MAX_DURATION:5s}
+    pdf-font-path: ${DOCUMENT_EXPORT_PDF_FONT_PATH:}
 
 management:
   endpoints:
@@ -24,3 +46,5 @@ logging:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{correlationId}] [%X{serviceName}] [%thread] %logger{36} - %msg%n"
   level:
     com.jobseekercopilot: ${APP_LOG_LEVEL:INFO}
+    org.springframework.web: INFO
+    org.springframework.http: INFO

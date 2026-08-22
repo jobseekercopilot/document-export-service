@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "contract": {
+    "path": "contracts/openapi.json",
+    "version": "3.1.0",
+    "sourceRevision": "cda9a2af811bafe99ecd686faab14db67f21ae32",
+    "sha256": "2848a72e78c2bfaa48ac5879e99528be0daaee6371cd6bd8a99c59e3131d585a",
+    "initialRelease": false,
+    "compatibilityBaseRevision": "2d6edd832027307bd5cf1777cfbedbcd322bc1e7"
+  },
+  "javaPackage": {
+    "groupId": "com.jobseekercopilot.clients",
+    "artifactId": "document-export-service-client",
+    "version": "3.1.0-rev.cda9a2af811b",
+    "registry": "https://maven.pkg.github.com/jobseekercopilot/document-export-service"
+  },
+  "generator": {
+    "name": "openapi-generator",
+    "version": "7.5.0",
+    "library": "resttemplate"
+  }
+}

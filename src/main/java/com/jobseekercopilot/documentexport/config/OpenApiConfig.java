@@ -1,7 +1,9 @@
 package com.jobseekercopilot.documentexport.config;
 
 import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.info.Info;
+import io.swagger.v3.oas.models.security.SecurityScheme;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -12,7 +14,18 @@ public class OpenApiConfig {
     OpenAPI documentExportOpenApi() {
         return new OpenAPI().info(new Info()
                 .title("Jobseeker Copilot - Document Export API")
-                .version("1.0.0")
-                .description("Exports generated document content into DOCX and PDF files and saves them to document-store-service."));
+                .version("3.1.0")
+                .description("""
+                        Exports generated document content into DOCX and PDF files and saves them
+                        to document-store-service. Every export operation requires the approved
+                        Gateway service identity, its trusted document-owner context and a stable
+                        operation key so ordinary exports can be replayed without duplicate files.
+                        """))
+                .components(new Components().addSecuritySchemes(
+                        "serviceToken",
+                        new SecurityScheme()
+                                .type(SecurityScheme.Type.APIKEY)
+                                .in(SecurityScheme.In.HEADER)
+                                .name("X-Service-Token")));
     }
 }
