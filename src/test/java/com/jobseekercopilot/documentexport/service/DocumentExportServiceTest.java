@@ -25,6 +25,7 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -56,6 +57,9 @@ class DocumentExportServiceTest {
     @BeforeEach
     void setUp() {
         DocumentExportLimits limits = new DocumentExportLimits();
+        // These service-orchestration tests exercise downstream behaviour;
+        // RenderBudgetTest owns the production deadline boundary.
+        limits.setRenderMaxDuration(Duration.ofMinutes(1));
         RenderBudget renderBudget = new RenderBudget(limits);
         ExportFontProvider fontProvider = new ExportFontProvider(limits);
         PdfParagraphFactory paragraphs =
