@@ -11,6 +11,12 @@ RUN mvn -B --no-transfer-progress clean verify
 
 FROM eclipse-temurin:17-jre-alpine
 
+# Upgrade the OpenSSL runtime packages to the CVE-2026-14456 fixed build.
+RUN apk add --no-cache --upgrade \
+    libcrypto3=3.5.8-r0 \
+    libssl3=3.5.8-r0 \
+    openssl=3.5.8-r0
+
 WORKDIR /app
 COPY --from=build /app/target/document-export-service-1.0.0.jar app.jar
 COPY --from=build /app/licenses/DEJAVU-FONTS-LICENSE.txt /usr/share/licenses/font-dejavu/LICENSE
