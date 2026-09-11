@@ -18,6 +18,7 @@ import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -951,6 +952,10 @@ class ExportRendererTest {
 
     private DocxExportService docxExportService() {
         DocumentExportLimits limits = new DocumentExportLimits();
+        // Use a generous wall-clock render budget so this pagination test does
+        // not flake under heavy parallel CI load (the strict production budget
+        // is exercised deterministically in RenderBudgetTest).
+        limits.setRenderMaxDuration(Duration.ofMinutes(5));
         ExportFontProvider fontProvider = new ExportFontProvider(limits);
         PdfParagraphFactory paragraphs =
                 new PdfParagraphFactory(fontProvider);
@@ -961,6 +966,10 @@ class ExportRendererTest {
 
     private PdfExportService pdfExportService() {
         DocumentExportLimits limits = new DocumentExportLimits();
+        // Use a generous wall-clock render budget so this pagination test does
+        // not flake under heavy parallel CI load (the strict production budget
+        // is exercised deterministically in RenderBudgetTest).
+        limits.setRenderMaxDuration(Duration.ofMinutes(5));
         ExportFontProvider fontProvider = new ExportFontProvider(limits);
         PdfParagraphFactory paragraphs =
                 new PdfParagraphFactory(fontProvider);
@@ -972,6 +981,10 @@ class ExportRendererTest {
 
     private PdfExportService pdfExportServiceWithoutSemanticBreaks() {
         DocumentExportLimits limits = new DocumentExportLimits();
+        // Use a generous wall-clock render budget so this pagination test does
+        // not flake under heavy parallel CI load (the strict production budget
+        // is exercised deterministically in RenderBudgetTest).
+        limits.setRenderMaxDuration(Duration.ofMinutes(5));
         ExportFontProvider fontProvider = new ExportFontProvider(limits);
         PdfParagraphFactory paragraphs =
                 new PdfParagraphFactory(fontProvider);
